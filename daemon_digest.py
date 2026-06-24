@@ -1,78 +1,129 @@
 #!/usr/bin/env python3
-"""daemon_digest.py — 知识消化守护
+"""daemon_digest.py — 深度知识消化（v2：全量无跳过）
 
 由 cron_runner.sh digest 调度（每2小时6-23点）。
-处理新采集的 raw 数据，生成结构化摘要到 wiki/。
+对每一条原始数据都用32B做深度分析。
 """
-import sys, json
+import sys, json, requests
 from pathlib import Path
+from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config_shared import (
-    setup_logger, SECOND_BRAIN, RAW_DIR, WIKI_DIR, today_str
-)
+from config_shared import setup_logger, SECOND_BRAIN, RAW_DIR, LOCAL_LLM_ENDPOINT
 
 logger = setup_logger("daemon_digest", "daemon_digest.log")
 
-def collect_recent_raw(days=2):
-    """收集最近 days 天的 raw 数据"""
-    from datetime import datetime, timedelta
-    cutoff = datetime.now() - timedelta(days=days)
-    results = []
-    for raw_type in ["feishu", "whatsapp", "meetings"]:
-        d = RAW_DIR / raw_type
+def call_llm(prompt, timeout=600):
+    try:
+        resp = requests.post(
+            LOCAL_LLM_ENDPOINT,
+            json={"messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.1, "max_tokens": 4096},
+            timeout=timeout
+        )
+        return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error(f"LLM failed: {e}")
+        return ""
+
+def deep_digest_all():
+    """全量分析所有未消化的raw数据"""
+    cutoff = datetime.now() - timedelta(days=2)
+    total = 0
+    
+    raw_types = {
+        "feishu": ("飞书消息", "群聊/私聊消息分析"),
+        "whatsapp": ("WhatsApp消息", "聊天记录分析"),
+        "email": ("邮件", "邮件内容分析"),
+        "meetings": ("会议纪要", "会议记录分析")
+    }
+    
+    for dir_name, (label, desc) in raw_types.items():
+        d = RAW_DIR / dir_name
         if not d.exists():
             continue
+        
+        done_file = RAW_DIR / "digest" / f"{dir_name}_digest_done.txt"
+        done_set = set()
+        if done_file.exists():
+            done_set = set(done_file.read_text().splitlines())
+        
         for f in sorted(d.iterdir(), reverse=True):
             if not f.is_file():
                 continue
+            if str(f) in done_set:
+                continue
             mtime = datetime.fromtimestamp(f.stat().st_mtime)
             if mtime < cutoff:
-                break
-            results.append(f)
-        if len(results) > 10:
-            break
-    return results
+                continue
+            
+            try:
+                content = f.read_text(encoding="utf-8", errors="replace")[:6000]
+            except Exception:
+                continue
+            
+            logger.info(f"Digesting: {f.name} ({len(content)} chars)")
+            
+            prompt = f"""你是一个C&I Nigeria业务分析师。请对以下{label}进行深度分析。
 
-def digest_file(fpath):
-    """将单个原始文件处理为结构化摘要"""
-    try:
-        content = fpath.read_text(encoding="utf-8")[:3000]
-    except Exception:
-        return None
+文件: {f.name}
+来源: {dir_name}
+大小: {len(content)}字符
+
+内容:
+{content[:5000]}
+
+请输出详细分析报告：
+
+## 📋 基础信息
+- 来源类型
+- 时间范围
+- 涉及人数/实体数
+
+## 👥 关键人物与公司
+- 列出所有提到的个人和公司
+- 他们的角色和关联
+
+## 📊 关键数据提取
+- 数字、金额、时间线
+- 项目和进度
+- 市场情报
+
+## ✅ 待办与行动项
+- 明确的待办
+- 隐含需要跟进的
+
+## 🔗 业务关联分析
+- 与C&I业务的关联度
+- 对当前项目的潜在影响
+
+## ⚠️ 异常发现
+- 信息矛盾
+- 数据不一致
+- 需要核实的内容
+
+## 📝 综合摘要
+（300字以内）"""
+            
+            result = call_llm(prompt, timeout=600)
+            if result:
+                digest_dir = RAW_DIR / "digest"
+                digest_dir.mkdir(parents=True, exist_ok=True)
+                out = digest_dir / f"digest_{dir_name}_{f.stem}.md"
+                out.write_text(f"# {label}深度分析\n\n来源: {f}\n分析时间: {datetime.now().isoformat()}\n\n{result}")
+                logger.info(f"✅ {out.name}")
+                total += 1
+                
+                # 标记已处理
+                with open(done_file, "a") as df:
+                    df.write(f"{f}\n")
     
-    # 简单分类
-    topic = "general"
-    if "meeting" in fpath.name or "meet" in fpath.stem:
-        topic = "meeting"
-    elif "whatsapp" in fpath.stem or "wa_" in fpath.stem:
-        topic = "chat"
-    elif "feishu" in fpath.stem:
-        topic = "feishu"
-    
-    # 保存摘要
-    digest = {
-        "source": str(fpath),
-        "topic": topic,
-        "date": today_str(),
-        "size": len(content),
-        "preview": content[:500]
-    }
-    
-    digest_dir = RAW_DIR / "digest"
-    digest_dir.mkdir(parents=True, exist_ok=True)
-    out = digest_dir / f"{fpath.stem}_digest.json"
-    out.write_text(json.dumps(digest, ensure_ascii=False, indent=2))
-    return out
+    return total
 
 def main():
-    logger.info("Daemon digest start")
-    files = collect_recent_raw()
-    count = 0
-    for f in files:
-        if digest_file(f):
-            count += 1
-    logger.info(f"Digested {count}/{len(files)} files")
+    logger.info("Deep digest start")
+    n = deep_digest_all()
+    logger.info(f"Deep digest done: {n} files processed")
     return 0
 
 if __name__ == "__main__":
