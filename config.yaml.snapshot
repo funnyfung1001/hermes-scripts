@@ -458,12 +458,16 @@ approvals:
 command_allowlist:
 - git reset --hard (destroys uncommitted changes)
 - delete in root path
+- shell command via -c/-lc flag
 - script execution via -e/-c flag
 - kill hermes/gateway process (self-termination)
 - recursive delete
 - hermes update (restarts gateway, kills running agents)
 - force kill processes
+- overwrite system file via tee
 - stop/restart hermes gateway (kills running agents)
+- script execution via heredoc
+- disk copy
 - overwrite system file via redirection
 - execute_code
 - git force push short flag (rewrites remote history)
