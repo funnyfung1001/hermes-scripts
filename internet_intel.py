@@ -1,18 +1,186 @@
 #!/usr/bin/env python3
-"""internet_intel.py — 互联网情报采集
+"""internet_intel.py — 互联网情报采集（v2：全量无跳过）
 
 由 cron_runner.sh internet-intel 调度（每3小时）。
+采集尼日利亚和新市场（加纳/南非）的工商储行业情报，
+全部用本地32B模型分析后存入第二大脑。
 """
-import sys
+import sys, json, requests
 from pathlib import Path
+from datetime import datetime
+
 sys.path.insert(0, str(Path(__file__).parent))
-from config_shared import setup_logger
+from config_shared import setup_logger, RAW_DIR, LOCAL_LLM_ENDPOINT
 
 logger = setup_logger("internet_intel", "internet_intel.log")
 
+# ── 搜索源配置 ──
+SEARCH_QUERIES = [
+    # 尼日利亚工商储
+    ("Nigeria C&I energy storage", "行业"),
+    ("Nigeria solar battery commercial industrial", "行业"),
+    ("Nigeria mini-grid ESS battery", "行业"),
+    # 尼日利亚电力政策
+    ("Nigeria electricity tariff hike 2026", "政策"),
+    ("Nigeria NERC DISCO band A tariff", "政策"),
+    # 竞争对手动态
+    ("Sungrow Huawei BYD Nigeria energy storage", "竞争"),
+    ("Enphase SolarEdge Africa off-grid battery", "竞争"),
+    # 加纳/南非新市场
+    ("Ghana commercial storage solar 2026", "新市场"),
+    ("South Africa battery storage C&I 2026", "新市场"),
+    # 行业趋势
+    ("lithium iron phosphate battery price trend 2026", "趋势"),
+    ("Africa energy storage market forecast", "趋势"),
+    ("C&I energy storage ROI Africa 2026", "趋势"),
+]
+
+def search_web(query, limit=3):
+    """使用 tavily 或 exa 搜索（优先 Tavily）"""
+    try:
+        # Tavily 搜索
+        import os
+        api_key = os.environ.get("TAVILY_API_KEY", "")
+        if api_key:
+            resp = requests.post(
+                "https://api.tavily.com/search",
+                json={"api_key": api_key, "query": query, "search_depth": "advanced", "max_results": limit},
+                timeout=30
+            )
+            if resp.status_code == 200:
+                return resp.json().get("results", [])
+        
+        # Fallback: DuckDuckGo 免费搜索
+        resp = requests.get(
+            f"https://api.duckduckgo.com/?q={query}&format=json",
+            timeout=15
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            results = []
+            for item in data.get("RelatedTopics", [])[:limit]:
+                if "Text" in item:
+                    results.append({"title": item.get("Text","")[:100], "content": item.get("Text",""), "url": item.get("FirstURL","")})
+            return results
+    except Exception as e:
+        logger.debug(f"Search failed for '{query}': {e}")
+    return []
+
+def fetch_page(url, timeout=15):
+    """获取网页内容"""
+    try:
+        resp = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code == 200:
+            return resp.text[:8000]
+    except Exception as e:
+        logger.debug(f"Fetch failed {url}: {e}")
+    return ""
+
+def analyze_with_llm(content, query, category):
+    """用32B分析搜索到的内容"""
+    prompt = f"""你是C&I Nigeria储能业务的市场情报分析师。请对以下搜索结果进行分析：
+
+搜索词: {query}
+分类: {category}
+
+搜索结果:
+{content[:6000]}
+
+请输出分析报告：
+
+## 📰 情报摘要
+（核心信息，200字以内）
+
+## 🎯 与C&I Nigeria业务的关联度
+- 直接相关 / 间接相关 / 仅供参考
+- 理由
+
+## 💡 关键洞察
+- 市场机会
+- 竞争动态
+- 政策变化
+- 价格/技术趋势
+
+## ⚠️ 需要关注的风险
+- 政策风险
+- 竞争风险
+- 市场风险
+
+## 📊 建议后续动作
+- 具体可操作的建议
+
+输出语言：中文"""
+    
+    try:
+        resp = requests.post(
+            LOCAL_LLM_ENDPOINT,
+            json={"messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.1, "max_tokens": 4096},
+            timeout=600
+        )
+        return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error(f"LLM analysis failed: {e}")
+        return ""
+
 def main():
-    logger.info("Internet intel collection tick")
-    # 预留：未来接入 RSS/API 情报源
+    logger.info("=== Internet intel collection start ===")
+    
+    intel_dir = RAW_DIR / "intel"
+    intel_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    
+    all_reports = []
+    total_searched = 0
+    
+    for query, category in SEARCH_QUERIES:
+        logger.info(f"Searching: [{category}] {query}")
+        
+        # 1. 搜索
+        results = search_web(query)
+        if not results:
+            logger.debug(f"  No results for: {query}")
+            continue
+        
+        total_searched += 1
+        logger.info(f"  Got {len(results)} results")
+        
+        # 2. 提取内容
+        content_parts = []
+        for r in results[:3]:
+            title = r.get("title", "")
+            snippet = r.get("content", "") or r.get("snippet", "")
+            url = r.get("url", "")
+            content_parts.append(f"## {title}\n{snippet}\n来源: {url}\n")
+        
+        combined = "\n".join(content_parts)
+        
+        # 3. 32B分析
+        analysis = analyze_with_llm(combined, query, category)
+        if not analysis:
+            continue
+        
+        # 4. 保存
+        all_reports.append(f"---\n## [{category}] {query}\n\n{analysis}\n")
+        
+        # 每条搜索保存单独文件
+        out = intel_dir / f"intel_{category}_{ts}.md"
+        with open(out, "a", encoding="utf-8") as f:
+            f.write(f"\n\n## {query}\n{analysis}\n")
+        
+        logger.info(f"  ✅ {query}")
+    
+    # 5. 综合报告
+    if all_reports:
+        report = f"# 互联网情报采集 — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n" + \
+                 f"采集: {total_searched}/{len(SEARCH_QUERIES)} 条搜索有结果\n" + \
+                 "".join(all_reports)
+        
+        summary_path = intel_dir / f"intel_summary_{ts}.md"
+        summary_path.write_text(report)
+        logger.info(f"Summary: {summary_path.name} ({len(report)} chars)")
+    
+    logger.info(f"=== Internet intel done: {total_searched} searches processed ===")
     return 0
 
 if __name__ == "__main__":
