@@ -94,7 +94,7 @@ def generate_with_deepseek(data):
     
     import requests
     
-    prompt = f"""你是一个业务简报助手。请根据以下今日采集的数据，生成一份简洁的飞书简报卡片内容（纯文本，支持Markdown）。
+    prompt = f"""你是一个业务简报助手。请根据以下今日采集的数据，生成一份结构化的每日简报。
 
 今日日期：{today_str()}
 
@@ -106,16 +106,28 @@ def generate_with_deepseek(data):
 ### 会议纪要
 {data.get('meetings', '无')}
 
-请按以下格式输出：
-**📊 今日概览**
-- 关键数字/进展
-- 重要事项
+请严格按以下格式输出（CN 中文版模板）：
 
-**📌 待办关注**
-- 需要跟进的议题
+### 📋 今日概览
+（整体情况介绍，2-3句话）
 
-**📅 明日提醒**
-- 已知安排"""
+### 📊 项目进展
+- 项目/事项：状态
+
+### 📈 市场动态
+- 行业新闻/竞争情报
+
+### 👥 团队与行政
+- 团队事项/HR/财务
+
+### ✅ 待办事项
+| # | 事项 | 负责人 |
+|---|------|--------|
+
+### 📝 综合摘要
+（200字以内）
+
+注意：严格按以上顺序输出，不要调换。"""
     
     resp = requests.post(
         DEEPSEEK_API,
@@ -280,16 +292,25 @@ def filter_en_briefing(content):
     if not api_key:
         return ""
     import requests
-    prompt = f"""Extract actionable items and key updates from this Chinese daily briefing, output in English (brief, bullet points):
+    prompt = f"""Extract key information from this Chinese daily briefing and output in English following this structure:
 
 {content[:2000]}
 
 Format:
-**Key Updates**
-- (1-3 bullet points in English)
+**Overview**
+(2-3 sentences)
+
+**Project Updates**
+- (bullet points)
+
+**Market Intelligence**
+- (bullet points)
 
 **Action Items**
-- (bullet points with owners in English)"""
+- (bullet points with owners)
+
+**Summary**
+(100 words max)"""
     try:
         resp = requests.post(DEEPSEEK_API,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},

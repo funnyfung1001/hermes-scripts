@@ -28,7 +28,9 @@ _LARK_CLI = str(Path.home() / ".npm-global/bin/lark-cli")
 
 # ── 文档配置 ──
 DAILY_MEETING_DOC = "AkoGdGuBjovKoMxf3Qwc26FLnJg"
-WEEKLY_DOC_TOKEN = "WvZSdhOm8oRjpQxusfvcNSvsnbb"
+DAILY_MEETING_EN_DOC = "AHRkdz0TDouA7qxFTzkc36QSnEf"
+WEEKLY_DOC_TOKEN="WvZSdhOm8oRjpQxusfvcNSvsnbb"
+WEEKLY_DOC = "EYdqdDtfxoSvKGxcmfhcI2zdn2f"
 BRIEFING_CN_DOC = "IltidiIKDosnuSxBuiscyuapnng"
 BRIEFING_EN_DOC = "CrsSdqt6cored0xXeEhciXhcnsd"
 
@@ -154,25 +156,29 @@ def llm_generate_notes(summary, transcript):
 ## 对话记录（节选）
 {transcript[:4000] if transcript else '(无详细记录)'}
 
-请按以下格式输出：
+请按以下严格格式输出（不要添加额外内容）：
 
-### 📋 会议总结
-（按议题归纳，每个议题一个要点）
-**1. 议题名称**
-- 关键讨论点
-- 决策/结论
+### 📋 会议摘要
+（2-3句话概括会议主题和主要结论）
+
+### 📊 项目进展
+**地区名：**
+- 项目名：状态描述
 
 ### ✅ 待办事项
-| # | 待办事项 | 负责人 | 备注 |
-|---|---------|--------|------|
+| # | 事项 | 负责人 | 截止 |
+|---|------|--------|------|
 
-### 🔑 关键决策/要点
-- **重点事项：** 说明
+### 🔑 关键决策
+- 决策内容
+
+### ⚠️ 问题与风险
+- **级别：** 描述
 
 注意：
-- 用中文归纳，不是逐字翻译
-- 待办事项必须表格化
-- 没有明确负责人时留空"""
+- 项目进展用 **地区名：** 加粗分组
+- 待办事项必须表格化，没有截止日期留空
+- 输出严格按以上顺序，不要调换顺序"""
     
     try:
         resp = requests.post(

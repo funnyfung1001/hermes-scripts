@@ -1,0 +1,148 @@
+<title>C&I Daily Meeting — 会议纪要</title>
+
+<h1>文档模板规范</h1>
+
+<callout emoji="📋" background-color="light-blue" border-color="blue"><p><b>本文件定义了所有会议/报告文档的统一格式模板。</b> 所有历史数据补录和日常生成都严格按此模板执行。</p></callout>
+
+<hr/>
+
+<h1>1. 日会纪要（中文）— C&I Daily Meeting</h1>
+<p><b>文档用途：</b>每日站会的结构化中文纪要，包含会议摘要、项目进展、待办事项、关键决策等。</p>
+
+<h2>每日结构</h2>
+<pre lang="text"><code>
+## 2026-06-25（周三）
+
+### 📋 会议摘要
+（2-3句话概括会议主题和主要结论）
+
+### 📊 项目进展
+**拉各斯地区：**
+- 项目名：状态（审计完成/报价中/安装中/待跟进）
+
+**阿布贾地区：**
+- 项目名：状态
+
+**技术团队：**
+- 项目名：状态
+
+### ✅ 待办事项
+| # | 事项 | 负责人 | 截止 |
+|---|------|--------|------|
+
+### 🔑 关键决策
+- 决策内容
+
+### ⚠️ 问题与风险
+- **高风险：** 描述
+- **中风险：** 描述
+</code></pre>
+
+<hr/>
+
+<h1>2. C&I Daily Meeting (English) — 日会英文版</h1>
+<p><b>文档用途：</b>每日站会的英文纪要，用于发送给不会中文的团队成员备份。</p>
+
+<h2>Daily Entry</h2>
+<pre lang="text"><code>
+## 2026-06-25 (Wednesday)
+
+### Summary
+(2-3 sentences)
+
+### Project Updates
+**Lagos:**
+- Project: Status
+
+**Abuja:**
+- Project: Status
+
+**Technical:**
+- Project: Status
+
+### Action Items
+| # | Item | Owner | Due |
+|---|------|-------|-----|
+
+### Key Decisions
+
+### Risks
+</code></pre>
+
+<hr/>
+
+<h1>3. 每日简报（中文版）— CN Daily Briefing</h1>
+<p><b>文档用途：</b>每日简报的完整中文版，供冯立和中文团队成员查阅。</p>
+
+<h2>每日结构</h2>
+<pre lang="text"><code>
+## 2026-06-25 每日简报
+
+### 📋 今日概览
+（整体情况介绍）
+
+### 📊 项目进展
+- 项目/事项：状态
+
+### 📈 市场动态
+- 行业新闻/竞争情报
+
+### 👥 团队与行政
+- 团队事项/HR/财务
+
+### ✅ 待办事项
+| # | 事项 | 负责人 |
+|---|------|--------|
+
+### 📝 综合摘要
+（200字以内）
+</code></pre>
+
+<hr/>
+
+<h1>4. Daily Briefing (English) — 日报英文版</h1>
+<p><b>文档用途：</b>每日简报英文版，用于发送给工作群和英文团队成员。</p>
+
+<h2>结构</h2>
+<pre lang="text"><code>
+## 2026-06-25 Daily Briefing
+
+### Overview
+
+### Project Updates
+
+### Market Intelligence
+
+### Team & Admin
+
+### Action Items
+
+### Summary
+</code></pre>
+
+<hr/>
+
+<h1>5. 周会/周报 — NG C&amp;I Weekly Meeting</h1>
+<p><b>文档用途：</b>每周C&I团队会议的结构化纪要。</p>
+
+<h2>结构</h2>
+<pre lang="text"><code>
+## NG C&amp;I Weekly Meeting — 2026-06-19（周五）
+
+### 📋 会议概要
+
+### 📊 项目进展
+
+### 💰 财务与销售
+
+### 📈 市场情报
+
+### ✅ 待办事项
+
+### 🔑 关键决策
+
+### ⚠️ 问题与风险
+</code></pre>
+
+<h1>6. 第二大脑 Index</h1>
+<p><b>文档用途：</b>所有云文档的导航索引，维护在 <code>config.md</code> 中。</p>

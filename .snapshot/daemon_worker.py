@@ -148,7 +148,8 @@ def deep_digest():
 数据来源：{f.parent.name}/{f.name}
 数据大小：{len(content)}字符
 
-请输出：
+请按以下格式输出分析报告：
+
 ## 📊 信息提取
 - 关键人物
 - 关键公司/项目
