@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+@page { size: A4 landscape; margin: 15mm 20mm; }
+body { font-family: 'Arial', sans-serif; font-size: 9pt; line-height: 1.5; color: #2d3748; }
+h1 { color: #1a365d; border-bottom: 2px solid #1a365d; padding-bottom: 2mm; font-size: 14pt; text-align: center; }
+h2 { color: #2b6cb0; font-size: 11pt; margin-top: 4mm; }
+table { width: 100%; border-collapse: collapse; margin: 3mm 0; font-size: 8.5pt; }
+td, th { border: 1px solid #a0aec0; padding: 1.5mm; text-align: left; vertical-align: top; }
+th { background: #2b6cb0; color: white; font-weight: bold; }
+tr:nth-child(even) { background: #f7fafc; }
+.section-header { background: #edf2f7; font-weight: bold; }
+.check-cell { text-align: center; width: 8mm; }
+.footer-note { text-align: center; font-size: 8pt; color: #718096; margin-top: 5mm; border-top: 1px solid #e2e8f0; padding-top: 2mm; }
+</style></head><body>
+
+<h1>IHY-50KH3S 安装质量控制清单 / Installation Checklist</h1>
+
+<p><b>项目名称：</b>__________________ &nbsp;&nbsp;&nbsp;&nbsp; <b>设备SN码：</b>__________________</p>
+<p><b>EPC安装商：</b>__________________ &nbsp;&nbsp;&nbsp;&nbsp; <b>ND检查人：</b>__________________ &nbsp;&nbsp;&nbsp;&nbsp; <b>安装日期：</b>__________________</p>
+
+<h2>一、安装前 / Pre-Installation</h2>
+<table>
+<tr><th width="60%">检查项 / Check Item</th><th width="8%">完成</th><th width="8%">N/A</th><th>备注</th></tr>
+<tr><td>安装位置确认（通风、间距、承重）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>设备开箱检查（对照包装清单）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>壁挂支架水平固定</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>接地连接（先于所有电气接线）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+</table>
+
+<h2>二、电气连接 / Electrical Connections</h2>
+<table>
+<tr><th width="60%">检查项</th><th width="8%">完成</th><th width="8%">N/A</th><th>备注</th></tr>
+<tr><td>接地电阻 ≤ 指定值</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>AC接线（并网/备载/发电机—按端子标识）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>PV组串接线—极性确认+电压在允许范围内</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>电表+CT安装（CT方向P1→P2从源到负载）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>CT相位匹配确认</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>电池DC接线—串联正确 + DC断路器</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>通讯接线（COM2:BMS+电表，COM3:并联通讯）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>DIP开关设置（EMS/DRED/SYNC/PAR CAN/RSVD485）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+</table>
+
+<h2>三、调试 / Commissioning</h2>
+<table>
+<tr><th width="60%">检查项</th><th width="8%">完成</th><th width="8%">N/A</th><th>备注</th></tr>
+<tr><td>通电前检查（扭矩、极性、接地连续性）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>电池/PV/电网依次上电</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>主/从机设置（主机设并联数量，从机设地址号）</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>并网功能测试</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>备载功能测试</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>报警响应测试</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>远程监控验证</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+</table>
+
+<h2>四、验收 / Acceptance</h2>
+<table>
+<tr><th width="60%">检查项</th><th width="8%">完成</th><th width="8%">N/A</th><th>备注</th></tr>
+<tr><td>所有端子紧固、标识正确</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>无裸露导体、松动接头</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>CT方向正确、相位匹配</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>通讯模块安装配对完成</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>无报警代码</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+<tr><td>测试记录+照片提交</td><td class="check-cell">☐</td><td class="check-cell">☐</td><td></td></tr>
+</table>
+
+<h2>签署 / Sign-off</h2>
+<p><b>EPC确认：</b>已按SOP完成安装，所有检查项已完成。</p>
+<p style="margin-left:5mm;">EPC签字：__________________ &nbsp;&nbsp;&nbsp;&nbsp; 日期：__________________</p>
+<p><b>ND确认：</b>安装质量控制点已核查。</p>
+<p style="margin-left:5mm;">ND签字：__________________ &nbsp;&nbsp;&nbsp;&nbsp; 日期：__________________</p>
+
+<div class="footer-note">本单一式两份，EPC和ND各执一份。副本需回传品牌方存档。</div>
+
+</body></html>

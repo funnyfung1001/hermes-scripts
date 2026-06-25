@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@page { size: A5 landscape; margin: 0; }
+body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; }
+.card { width: 210mm; height: 148mm; box-sizing: border-box; padding: 8mm; position: relative; }
+.card-front { border: 2px solid #1a365d; background: linear-gradient(135deg, #f7fafc, #edf2f7); }
+.card-back { border: 2px solid #1a365d; background: linear-gradient(135deg, #fffff0, #fefcbf); }
+.header { background: #1a365d; color: white; padding: 4mm 8mm; text-align: center; font-size: 14pt; font-weight: bold; margin: -8mm -8mm 5mm -8mm; }
+.subheader { text-align: center; font-size: 9pt; color: #718096; margin-bottom: 4mm; }
+.field-row { display: flex; margin: 2mm 0; font-size: 9pt; }
+.field-label { width: 45mm; font-weight: bold; color: #2d3748; }
+.field-value { flex: 1; border-bottom: 1px dashed #a0aec0; color: #4a5568; }
+.section-title { font-weight: bold; font-size: 10pt; color: #1a365d; margin: 3mm 0 1mm 0; border-bottom: 1px solid #1a365d; padding-bottom: 0.5mm; }
+.footer { position: absolute; bottom: 5mm; left: 8mm; right: 8mm; text-align: center; font-size: 8pt; color: #e53e3e; font-weight: bold; border-top: 1px solid #e53e3e; padding-top: 1mm; }
+.sign-space { border-bottom: 1px solid #4a5568; height: 8mm; margin: 1mm 0; }
+</style>
+</head>
+<body>
+
+<div class="card card-front">
+  <div class="header">TranESS C&I 储能系统保修卡 / Warranty Card</div>
+  <div class="subheader">Commercial & Industrial Energy Storage System Warranty</div>
+  <div class="field-row"><span class="field-label">设备型号 / Model：</span><span class="field-value"></span></div>
+  <div class="field-row"><span class="field-label">SN码 / Serial No.：</span><span class="field-value">CNI-____________________</span></div>
+  <div class="field-row"><span class="field-label">安装日期 / Install Date：</span><span class="field-value"></span></div>
+  <div class="field-row"><span class="field-label">客户名称 / Customer：</span><span class="field-value"></span></div>
+  <div class="field-row"><span class="field-label">项目地址 / Location：</span><span class="field-value"></span></div>
+  <div class="field-row"><span class="field-label">EPC安装商 / EPC：</span><span class="field-value"></span></div>
+  <div class="field-row"><span class="field-label">国包/ND：</span><span class="field-value">Fundco (Nigeria) Limited</span></div>
+  <div class="section-title">质保期限 / Warranty Period</div>
+  <div style="font-size:9pt;line-height:1.8;">
+    ☐ 逆变器/高压箱/BMS：自激活日起 <b>5年</b><br>
+    ☐ 电池包（电芯）：自激活日起 <b>5年</b><br>
+    ☐ 配件（端子/仪表/线缆/连接器）：<b>不在质保范围</b>
+  </div>
+  <div class="section-title">报修流程 / Claim Process</div>
+  <div style="font-size:9pt;text-align:center;margin-top:1mm;"><b>EPC → ND → 品牌方 → 安排维修/更换</b></div>
+</div>
+
+<div class="card card-back" style="page-break-before:always;">
+  <div class="header">质保生效确认函 / Warranty Activation Confirmation</div>
+  <div style="font-size:9pt;line-height:1.8;">
+    <b>本人/本公司确认：</b><br>
+    1. 已收到上述设备并核对SN码无误<br>
+    2. EPC已完成安装并进行了技术交底<br>
+    3. 已阅读并理解质保条款及免责条款<br>
+    4. 同意上述质保条款及免责条款
+  </div>
+  <div style="display:flex;justify-content:space-between;margin:4mm 0;font-size:9pt;">
+    <div style="width:48%;">
+      <b>客户签字：</b><div class="sign-space"></div>
+      日期：_______________
+    </div>
+    <div style="width:48%;">
+      <b>EPC签字：</b><div class="sign-space"></div>
+      日期：_______________
+    </div>
+  </div>
+  <div style="font-size:9pt;margin:4mm 0;"><b>EPC确认：</b>已按SOP完成安装，已完成技术交底和安全管理告知</div>
+  <div style="font-size:9pt;margin:4mm 0;"><b>ND见证确认：</b><div class="sign-space" style="width:60%;"></div>日期：_______________</div>
+  <div class="footer">⚠️ 本卡副本传回品牌方后质保正式生效<br>Warranty effective upon return of this card copy to OEM</div>
+</div>
+
+</body>
+</html>
