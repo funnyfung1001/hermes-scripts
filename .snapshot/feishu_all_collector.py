@@ -186,7 +186,6 @@ def main():
     _seen_message_ids.clear()
     logger.info("=== Feishu all collector v3 start ===")
     n = collect_all()
-    collect_old_sources()
     logger.info(f"Feishu all collector done: {n} new msgs")
     return 0
 
