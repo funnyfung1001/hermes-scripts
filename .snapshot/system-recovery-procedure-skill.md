@@ -66,7 +66,7 @@ curl -s --max-time 60 http://localhost:8080/v1/chat/completions \
   -d '{"messages":[{"role":"user","content":"回复一个字：好"}],"max_tokens":5,"temperature":0}'
 ```
 
-> ⚠️ **已知问题**：health 返回 200 但 chat completions 无响应 → llama-server 推理队列被卡住。解决：`fuser -k 8080/tcp` 后重新启动。
+> ⚠️ **已知问题**：health 返回 200 但 chat completions 无响应 → llama-server 推理队列被卡住（长文本推理卡死阻塞后续请求）。排查：试一次简单推理（max_tokens=5）看是否在 30 秒内返回。修复：`fuser -k 8080/tcp` 后重新启动。注意这种卡死状态下 digest 和 internet-intel 的所有 LLM 调用都会超时（Read timed out）。
 
 ### 1c. OpenViking — 本地向量库
 ```bash
@@ -128,43 +128,76 @@ tail -30 ~/.hermes/logs/internet_intel.log
 ```
 检查最后是否有 "Searching:" 行。如果有 "Read timed out" 说明 32B 还没就绪（回第1步）。
 
-### 3c. 邮件采集
+### 3d. OpenViking 写入管道验证
 ```bash
-ls -lt /mnt/d/hermes_data/email/ | head -10
-tail -10 ~/.hermes/logs/mail_reader.log
-```
+# 测试 content/write API（正确端点，不要用 search/upsert）
+curl -s --connect-timeout 5 -X POST http://127.0.0.1:1933/api/v1/content/write \
+  -H "Content-Type: application/json" \
+  -d '{"uri":"viking://resources/second_brain/verify.md","content":"# 恢复验证","mode":"create","wait":false}'
 
-## 第4步：全量验证清单
-
-```bash
-echo "=== 1. Gateway ==="
-ps aux | grep 'hermes gateway run' | grep -v grep | wc -l
-
-echo "=== 2. 32B 模型 ==="
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health
-ps aux | grep llama-server | grep 'Qwen2.5-32B'
-
-echo "=== 3. OpenViking ==="
-curl -s --max-time 3 http://127.0.0.1:1933/health
-
-echo "=== 4. Hermes cron ==="
-hermes cron list | grep -c "active"
-
-echo "=== 5. crontab ==="
-crontab -l | grep -c "^\|^[0-9]"
-
-echo "=== 6. 第二大脑 raw 目录 ==="
-ls -d ~/hermes-business/第二大脑/raw/*/ | wc -l
-
-echo "=== 7. D 盘备份 ==="
-ls /mnt/d/hermes-backup/ 2>/dev/null | tail -3
-
-echo "=== 8. GitHub 状态 ==="
-cd ~/.hermes/scripts-backup && git status -s
-
-echo "=== 9. OpenViking 向量库 ==="
+# 看向量库是否增长
 find ~/.openviking/workspace/vectordb/ -type f | wc -l
 ```
+
+> ⚠️ **OpenViking API 要点（2026-06-25 发现）：**
+> - 写入端点：`POST /api/v1/content/write`（不是 `/api/v1/search/upsert`）
+> - URI scheme：`viking://resources/...`（不是 `memory://` 或 `file://`）
+> - 异步写入：设 `wait=false`，否则等待 embedding 完成会超时
+> - 速率控制：daemon_worker 每30分钟写入所有文件，需加 5秒间隔避免淹没队列
+> - 重启测试用 `curl -s http://127.0.0.1:1933/health` 验证，根路径 `/` 返回 404 是正常的
+
+## 第4步：验证实际产出（不仅仅是状态检查）
+
+**用户明确要求**：不要只看"进程在跑"，要确认**实际有数据文件产出**。状态检查只告诉你"进程在跑"，真正的故障只有验证数据文件才能发现。
+
+```bash
+# 飞书群消息：今天是否有新文件？
+ls -lt ~/hermes-business/第二大脑/raw/feishu/ | head -5
+
+# 互联网情报：今天是否有分析产出？
+ls -lt ~/hermes-business/第二大脑/raw/intel/ | head -5
+
+# 知识消化：最近分析文件的时间？
+ls -lt ~/hermes-business/第二大脑/raw/digest/ | head -10
+
+# 日报：最近一期日期？
+ls -lt ~/hermes-business/第二大脑/daily/ | head -5
+
+# OpenViking 向量库：实际文件数
+find ~/.openviking/workspace/vectordb/ -type f | wc -l
+```
+
+如果进程状态正常但无产出，排查方向：
+- 飞书采集报错 → 检查日志是否 `not configured`（lark-cli 路径问题）
+- digest/情报无分析 → 32B 可能推理卡死（health 200 但 chat 卡住）
+- 邮件无数据 → 检查 Windows 端计划任务是否已执行
+
+### 32B 推理验证（关键）
+
+```bash
+# 1. 简单测试（max_tokens=5，应在 10 秒内返回）
+curl -s --max-time 30 http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"回复一个字：好"}],"max_tokens":5,"temperature":0}'
+
+# 2. 如果返回 200 但内容为空，说明推理卡死
+# 3. 长文本（>5000 字符）分析建议用 DeepSeek（20秒内完成）而不是 32B（可能超时）
+```
+
+### 3e. 会议纪要采集 — 搜妙记查今天是否有新会议
+
+```bash
+TODAY=$(date +%Y-%m-%d)
+lark-cli vc +search --start "$TODAY" --as user | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for i in d.get('data',{}).get('items',[]):
+    print(f\\\"  {i.get('id','?')} | {i.get('display_info','?').split(chr(10))[0]}\\\")
+"
+```
+注意：有 meeting ID 不等于有 minute_token（需 `vc +recording`），有 minute_token 不等于有 AI 纪要（需 `vc +notes`，可用 transcript 降级）。
+
+全部 API 细节见 `feishu-daily-system` skill 的 `references/lark-cli-vc-meetings.md`。
 
 ## 常见问题速查
 
@@ -173,8 +206,9 @@ find ~/.openviking/workspace/vectordb/ -type f | wc -l
 | Gateway 未运行 | 飞书消息收不到 | 自愈：5分钟内 watchdog 自动重启 |
 | 32B 推理卡死 | health 200 但 chat 无响应 | `fuser -k 8080/tcp` → 重启 llama-server |
 | 飞书采集报 `not configured` | 日志显示 lark-cli 配置丢失 | 检查脚本中用绝对路径 `~/.npm-global/bin/lark-cli`，不要用裸命令 |
-| D 盘 I/O 卡死 | `ls /mnt/d/` 卡住 | `kill -9` 残留 cp/dd 进程，`cmd.exe /c` 绕过 |
+| D 盘 I/O 卡死 | `ls /mnt/d/` 或 `cp` 卡住 | `kill -9` 残留 cp/dd 进程 → `cmd.exe /c "rmdir /s /q D:\\path"` 绕行 → `echo "test" > /mnt/d/test` 验证恢复 |
 | er-gou-patrol Broken pipe | cron 报 `[Errno 32]` | 巡检命令太复杂（多级管道），简化成独立 terminal 命令 |
+| OpenViking 写入失败 | 返回 NOT_FOUND | 用 `POST /api/v1/content/write`（不是 `/api/v1/search/upsert`），URI 用 `viking://resources/...` scheme（不是 `memory://` 或 `file://`），`wait=false` 异步写入。daemon_worker 循环中加 5 秒间隔速率控制避免并发淹没 |
 | 日报/会议纪要管道 | 卡在某一步 | 检查 `daily_briefing*.log` 或 `meeting_notes*.log` 的 error 行 |
 | cron_runner 没跑 | crontab 存在但任务不执行 | 检查 `cron_runner.sh` 是否可执行，`test -x` 验证 |
 | Kanban 僵尸任务 | 同一任务连续多次 blocked alert | `hermes kanban archive <task_id>` 归档 |
