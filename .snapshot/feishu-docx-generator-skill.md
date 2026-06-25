@@ -142,7 +142,31 @@ lark-cli api POST "drive/v1/files/upload_all" \
 └── generate_all.sh           # 一键生成全部PDF
 ```
 
-### 更新流程
+#### 新文档：首次写入用 overwrite 而非 append
+创建新文档后，首次写入全部内容用 `overwrite`（`append` 也可以但每次都是追加操作，导致版本号反复增加）。验证方法：写入后用 `raw_content` 检查总行数和关键章节存在性。
+```bash
+lark-cli api GET "docx/v1/documents/<doc_id>/raw_content" --as user | python3 -c "import sys,json; lines=json.load(sys.stdin)['data']['content'].split('\n'); print(f'总行数: {len(lines)}')"
+```
+
+#### 更新文档内容后必须同步更新源文件
+对飞书云文档做 str_replace / block_delete / append 后，必须同时修改 `after_sales_src/` 下的对应 HTML/Markdown 源文件，否则下次 generate_all.sh 会覆盖回旧版本。
+
+#### 更新附录索引表时检查是否有重复
+更新附录A后，用 `raw_content` 查 '附录' 出现次数。如果有2个以上附录A（str_replace 可能因为block拆分未完全匹配到所有旧内容），先 block_delete 所有旧附录block再重新append。
+
+### Docker 容灾备份路径
+```bash
+# 全量备份到 D 盘（约27GB）
+BACKUP_DIR="/mnt/d/hermes-backup/$(date +%Y-%m-%d)"
+mkdir -p "$BACKUP_DIR"
+cp -a ~/.hermes "${BACKUP_DIR}/hermes_config"
+cp -a ~/hermes-business "${BACKUP_DIR}/hermes_business"
+cp ~/llama.cpp/models/Qwen2.5-32B-Instruct-Q4_K_M.gguf "${BACKUP_DIR}/"
+cp -a ~/.openviking "${BACKUP_DIR}/openviking_data"
+cp -a ~/.config "${BACKUP_DIR}/config"
+cp -a ~/.npm-global "${BACKUP_DIR}/npm_global"
+# 之后拷走：cp -a /mnt/d/hermes-backup/ /mnt/e/ （移动硬盘）
+```
 
 **如果只改文字内容（不改排版）：**
 1. 直接在飞书云文档编辑（最方便）
@@ -193,3 +217,5 @@ lark-cli docs +update --api-version v2 \
 | 99992402 | lark-cli 参数格式问题 | 改用主Bot HTTP API 或去掉可疑参数 |
 | 409/冲突 | revision_id 冲突 | 用 `--revision-id -1` |
 | PDF params error | 上传缺 `size` 字段 | 必须传 `size=$(stat -c%s file)` |
+| markdown overwrite 后内容丢失/截断 | 包含 ascii art 或复杂表格被飞书渲染丢弃 | 写入后用 `raw_content` 做完整性检查，对比原文总行数 |
+| str_replace 没有完全替换 | markdown→block 展开后同一段文字可能散落在多个 block 中 | 先 `block_delete` 整段再重新 `append`，比 str_replace 可靠 |
