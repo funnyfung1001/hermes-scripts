@@ -85,26 +85,24 @@ def collect_data():
     
     return sections
 
-def generate_with_deepseek(data):
-    """调用 DeepSeek 生成简报"""
-    api_key = get_deepseek_key()
-    if not api_key:
-        logger.error("No DeepSeek API key")
-        return "⚠ DeepSeek API key 未配置，简报生成失败。"
-    
+def generate_with_local_llm(data):
+    """调用本地32B生成简报（大内容自动分段）"""
     import requests
-    
-    prompt = f"""你是一个业务简报助手。请根据以下今日采集的数据，生成一份结构化的每日简报。
+
+    feishu_data = data.get('feishu', '无')[:2000]
+    meeting_data = data.get('meetings', '无')[:2000]
+
+    prompt = f"""你是一个C&I Nigeria业务简报助手。请根据以下今日采集的数据，生成结构化的每日简报。
 
 今日日期：{today_str()}
 
 ## 今日数据概览
 
 ### 飞书群消息摘要
-{data.get('feishu', '无')[:1500]}
+{feishu_data}
 
 ### 会议纪要
-{data.get('meetings', '无')}
+{meeting_data}
 
 请严格按以下格式输出（CN 中文版模板）：
 
@@ -128,27 +126,62 @@ def generate_with_deepseek(data):
 （200字以内）
 
 注意：严格按以上顺序输出，不要调换。"""
-    
-    resp = requests.post(
-        DEEPSEEK_API,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": DEEPSEEK_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 2000
-        },
-        timeout=120
-    )
-    result = resp.json()
-    content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-    if not content:
-        logger.error(f"DeepSeek returned empty: {result}")
-        return "⚠ 简报生成异常。"
-    return content
+
+    # 如果 prompt 超过 2500 字符，分段处理
+    if len(prompt) > 2500:
+        parts = prompt.split("\n\n### ")
+        chunks = []
+        current = parts[0]
+        for part in parts[1:]:
+            if len(current) + len(part) < 2000:
+                current += "\n\n### " + part
+            else:
+                chunks.append(current)
+                current = "### " + part
+        if current:
+            chunks.append(current)
+
+        results = []
+        for i, chunk in enumerate(chunks):
+            try:
+                resp = requests.post(
+                    "http://localhost:8080/v1/chat/completions",
+                    json={
+                        "messages": [
+                            {"role": "system", "content": f"你是C&I Nigeria业务简报助手。这是第{i+1}/{len(chunks)}部分分析。{'最后部分，请汇总全部内容输出完整报告。' if i == len(chunks)-1 else '分析以下内容的关键信息。'}"},
+                            {"role": "user", "content": chunk}
+                        ],
+                        "max_tokens": 800,
+                        "temperature": 0.1
+                    },
+                    timeout=600
+                )
+                if resp.status_code == 200:
+                    part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if part:
+                        results.append(part)
+            except Exception:
+                pass
+
+        if results:
+            return "\n\n".join(results)
+        return ""
+
+    try:
+        resp = requests.post(
+            "http://localhost:8080/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1500,
+                "temperature": 0.1
+            },
+            timeout=600
+        )
+        if resp.status_code == 200:
+            return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error(f"32B call failed: {e}")
+    return ""
 
 def send_briefing_card(content, recipient_id=None):
     """发送简报卡片"""
@@ -172,7 +205,7 @@ def generate_and_send(recipient_id=None):
     logger.info("Generating daily briefing...")
     
     data = collect_data()
-    content = generate_with_deepseek(data)
+    content = generate_with_local_llm(data)
     
     # 保存到 daily 目录
     DAILY_DIR.mkdir(parents=True, exist_ok=True)
@@ -287,10 +320,7 @@ def summarize_cn_briefing(content):
     return content[:1500]  # 简化为取前1500字
 
 def filter_en_briefing(content):
-    """用 DeepSeek 筛选英文工作群内容"""
-    api_key = get_deepseek_key()
-    if not api_key:
-        return ""
+    """用本地32B筛选英文工作群内容"""
     import requests
     prompt = f"""Extract key information from this Chinese daily briefing and output in English following this structure:
 
@@ -312,14 +342,20 @@ Format:
 **Summary**
 (100 words max)"""
     try:
-        resp = requests.post(DEEPSEEK_API,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": DEEPSEEK_MODEL, "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.3, "max_tokens": 1000},
-            timeout=60)
-        return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+        resp = requests.post(
+            "http://localhost:8080/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1000,
+                "temperature": 0.1
+            },
+            timeout=600
+        )
+        if resp.status_code == 200:
+            return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception:
-        return ""
+        pass
+    return ""
 
 if __name__ == "__main__":
     sys.exit(main())

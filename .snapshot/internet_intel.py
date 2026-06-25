@@ -89,14 +89,98 @@ def fetch_page(url, timeout=15):
     return ""
 
 def analyze_with_llm(content, query, category):
-    """用32B分析搜索到的内容"""
+    """用32B分析搜索到的内容（大内容自动分段）"""
+    results_text = content[:6000]
+
+    # 如果超过 2500 字符，分段处理
+    if len(results_text) > 2500:
+        paragraphs = results_text.split("\n")
+        chunks = []
+        current = ""
+        for para in paragraphs:
+            if len(current) + len(para) < 1500:
+                current += para + "\n"
+            else:
+                if current:
+                    chunks.append(current.strip())
+                current = para + "\n"
+        if current:
+            chunks.append(current.strip())
+        if len(chunks) <= 1:
+            chunks = [results_text[:1500]]
+
+        all_analyses = []
+        for i, chunk in enumerate(chunks):
+            prompt = f"""你是C&I Nigeria储能业务的市场情报分析师。
+
+搜索词: {query}
+分类: {category}
+这是分析的第{i+1}/{len(chunks)}部分搜索结果：
+
+{chunk}
+
+请分析这部分内容的核心信息。"""
+            try:
+                resp = requests.post(
+                    LOCAL_LLM_ENDPOINT,
+                    json={"messages": [{"role": "user", "content": prompt}],
+                          "temperature": 0.1, "max_tokens": 800},
+                    timeout=600
+                )
+                part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if part:
+                    all_analyses.append(part)
+            except Exception as e:
+                logger.error(f"LLM chunk {i} failed: {e}")
+
+        if not all_analyses:
+            return ""
+
+        combined = "\n\n".join(all_analyses)
+
+        # 如果分段了，用32B汇总
+        if len(chunks) > 1:
+            summary_prompt = f"""汇总以下多部分分析结果，输出综合报告：
+
+{combined}
+
+请按以下格式输出：
+
+## 📰 情报摘要
+（核心信息，200字以内）
+
+## 🎯 与C&I Nigeria业务的关联度
+
+## 💡 关键洞察
+- 市场机会
+- 竞争动态
+- 政策变化
+
+## ⚠️ 需要关注的风险
+
+## 📊 建议后续动作"""
+            try:
+                resp = requests.post(
+                    LOCAL_LLM_ENDPOINT,
+                    json={"messages": [{"role": "user", "content": summary_prompt}],
+                          "temperature": 0.1, "max_tokens": 800},
+                    timeout=600
+                )
+                final = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if final:
+                    return final
+            except Exception:
+                pass
+        return combined
+
+    # 短内容直接处理
     prompt = f"""你是C&I Nigeria储能业务的市场情报分析师。请对以下搜索结果进行分析：
 
 搜索词: {query}
 分类: {category}
 
 搜索结果:
-{content[:6000]}
+{results_text}
 
 请输出分析报告：
 
@@ -122,7 +206,6 @@ def analyze_with_llm(content, query, category):
 - 具体可操作的建议
 
 输出语言：中文"""
-    
     try:
         resp = requests.post(
             LOCAL_LLM_ENDPOINT,
@@ -198,3 +281,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
