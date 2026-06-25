@@ -112,7 +112,8 @@ def call_llm(prompt, timeout=600):
         api_key = ""
         for line in open(env_path):
             line = line.strip()
-                        if "DEEPSEEK_API_KEY" in line:
+            if "DEEPSEEK_API_KEY" in line:
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
                 break
         if not api_key:
             return ""
