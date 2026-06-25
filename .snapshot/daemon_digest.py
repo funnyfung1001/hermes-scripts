@@ -2,52 +2,88 @@
 """daemon_digest.py — 深度知识消化（v2：全量无跳过）
 
 由 cron_runner.sh digest 调度（每2小时6-23点）。
-对每一条原始数据都用32B做深度分析。
+对每一条原始数据都用32B做深度分析，超时降级到 DeepSeek。
 """
 import sys, json, requests
 from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config_shared import setup_logger, SECOND_BRAIN, RAW_DIR, LOCAL_LLM_ENDPOINT
+from config_shared import setup_logger, SECOND_BRAIN, RAW_DIR
 
 logger = setup_logger("daemon_digest", "daemon_digest.log")
 
 def call_llm(prompt, timeout=600):
+    """调用本地32B模型，超时后降级到 DeepSeek（仅非敏感摘要内容）"""
+    import requests
+
+    # 先试本地32B
     try:
         resp = requests.post(
-            LOCAL_LLM_ENDPOINT,
-            json={"messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.1, "max_tokens": 4096},
+            "http://localhost:8080/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 800,
+                "temperature": 0.1
+            },
             timeout=timeout
         )
-        return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-    except Exception as e:
-        logger.error(f"LLM failed: {e}")
-        return ""
+        if resp.status_code == 200:
+            content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            if content:
+                return content
+    except Exception:
+        pass
+
+    # 超时降级到 DeepSeek
+    try:
+        env_path = Path.home() / ".hermes" / ".env"
+        api_key = ""
+        for line in open(env_path):
+            line = line.strip()
+            if line.startswith("DEEPSEEK_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+                break
+        if api_key:
+            resp = requests.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt[:3000]}],
+                    "max_tokens": 1000,
+                    "temperature": 0.1
+                },
+                headers={"Authorization": "Bearer " + api_key},
+                timeout=60
+            )
+            if resp.status_code == 200:
+                return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception:
+        pass
+    return ""
 
 def deep_digest_all():
     """全量分析所有未消化的raw数据"""
     cutoff = datetime.now() - timedelta(days=2)
     total = 0
-    
+
     raw_types = {
         "feishu": ("飞书消息", "群聊/私聊消息分析"),
         "whatsapp": ("WhatsApp消息", "聊天记录分析"),
         "email": ("邮件", "邮件内容分析"),
         "meetings": ("会议纪要", "会议记录分析")
     }
-    
+
     for dir_name, (label, desc) in raw_types.items():
         d = RAW_DIR / dir_name
         if not d.exists():
             continue
-        
+
         done_file = RAW_DIR / "digest" / f"{dir_name}_digest_done.txt"
         done_set = set()
         if done_file.exists():
             done_set = set(done_file.read_text().splitlines())
-        
+
         for f in sorted(d.iterdir(), reverse=True):
             if not f.is_file():
                 continue
@@ -56,14 +92,14 @@ def deep_digest_all():
             mtime = datetime.fromtimestamp(f.stat().st_mtime)
             if mtime < cutoff:
                 continue
-            
+
             try:
                 content = f.read_text(encoding="utf-8", errors="replace")[:6000]
             except Exception:
                 continue
-            
+
             logger.info(f"Digesting: {f.name} ({len(content)} chars)")
-            
+
             prompt = f"""你是一个C&I Nigeria业务分析师。请对以下{label}进行深度分析。
 
 文件: {f.name}
@@ -104,20 +140,20 @@ def deep_digest_all():
 
 ## 📝 综合摘要
 （300字以内）"""
-            
+
             result = call_llm(prompt, timeout=600)
             if result:
                 digest_dir = RAW_DIR / "digest"
                 digest_dir.mkdir(parents=True, exist_ok=True)
-                out = digest_dir / f"digest_{dir_name}_{f.stem}.md"
+                out = digest_dir / f"{dir_name}_{f.stem}_analysis.md"
                 out.write_text(f"# {label}深度分析\n\n来源: {f}\n分析时间: {datetime.now().isoformat()}\n\n{result}")
                 logger.info(f"✅ {out.name}")
                 total += 1
-                
+
                 # 标记已处理
                 with open(done_file, "a") as df:
                     df.write(f"{f}\n")
-    
+
     return total
 
 def main():
