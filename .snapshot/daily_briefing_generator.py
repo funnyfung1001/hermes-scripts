@@ -21,10 +21,15 @@ def collect_data():
     raw = SECOND_BRAIN / "raw"
     sections = {}
     
-    # Feishu 群消息 — 提取可读文本
+    # Feishu 群消息 — 提取可读文本（支持新目录结构 v3）
     feishu_dir = raw / "feishu"
     if feishu_dir.exists():
         files = []
+        # v3 新结构: raw/feishu/YYYYMMDD/*.json
+        date_subdir = feishu_dir / today_compact
+        if date_subdir.exists():
+            files.extend(sorted(date_subdir.glob("*.json"), reverse=True)[:5])
+        # 旧结构: raw/feishu/*YYYYMMDD*.json
         for pat in [f"*{today}*", f"*{today_compact}*"]:
             files.extend(feishu_dir.glob(pat))
         files = sorted(set(files), key=lambda f: f.stat().st_mtime, reverse=True)[:5]
