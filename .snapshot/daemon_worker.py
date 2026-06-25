@@ -279,17 +279,27 @@ def idle_work():
     return False
 
 def _get_raw_files(days=7):
+    """获取最近 N 天的原始数据文件（支持 v3 飞书目录结构）"""
     cutoff = datetime.now() - timedelta(days=days)
     files = []
     for subdir in ["feishu", "whatsapp", "email", "meetings"]:
         d = RAW_DIR / subdir
         if d.exists():
+            # v3 飞书新结构: feishu/YYYYMMDD/*.json
+            if subdir == "feishu":
+                for date_dir in sorted(d.iterdir(), reverse=True):
+                    if date_dir.is_dir() and date_dir.name.isdigit():
+                        for f in date_dir.glob("*.json"):
+                            mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                            if mtime > cutoff:
+                                files.append(f)
+            # 旧结构
             for f in sorted(d.iterdir(), reverse=True):
                 if f.is_file():
                     mtime = datetime.fromtimestamp(f.stat().st_mtime)
                     if mtime > cutoff:
                         files.append(f)
-    return files[:15]
+    return list(set(files))[:15]  # 去重后取前15个
 
 def _idle_knowledge_link():
     """连接不同来源的知识片段"""
@@ -436,8 +446,9 @@ def main():
     except Exception as e:
         logger.debug(f"OpenViking ingest: {e}")
 
-    # 7. 空闲深度学习
-    if not worked:
+    # 7. 空闲深度学习（概率触发，约每2小时一次）
+    import random
+    if not worked or random.random() < 0.15:
         idle_work()
     
     logger.info("=== Daemon worker tick done ===")
