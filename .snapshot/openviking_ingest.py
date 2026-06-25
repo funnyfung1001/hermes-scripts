@@ -7,14 +7,15 @@ openviking_ingest.py — 将第二大脑（hermes-business）最新内容写入 
 """
 import json, os, sys, time
 from pathlib import Path
+from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config_shared import setup_logger, RAW_DIR
 
 logger = setup_logger("openviking_ingest", "openviking_ingest.log")
 
-OV_API = "http://127.0.0.1:1933/api/v1/search/upsert"
-COLLECTION = "context"
+OV_WRITE_API = "http://127.0.0.1:1933/api/v1/content/write"
+COLLECTION_URI_PREFIX = "viking://resources/second_brain/"
 
 # 已处理文件标记（增量）
 PROCESSED_FILE = Path.home() / ".hermes" / ".openviking_processed.txt"
@@ -28,113 +29,76 @@ def save_processed(ids):
     PROCESSED_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROCESSED_FILE.write_text("\n".join(sorted(ids)))
 
+# 速率控制
+_OV_LAST_WRITE = 0.0
+
+def write_to_ov(uri, content):
+    """通过 OpenViking content/write API 写入，速率控制：最多每5秒1条"""
+    import requests, time
+    global _OV_LAST_WRITE
+    elapsed = time.time() - _OV_LAST_WRITE
+    if elapsed < 5:
+        time.sleep(5 - elapsed)
+    _OV_LAST_WRITE = time.time()
+
+    resp = requests.post(OV_WRITE_API, json={
+        "uri": uri,
+        "content": content[:5000],
+        "mode": "create",
+        "wait": False  # 异步，不等待 embedding 完成
+    }, timeout=10)
+    return resp.status_code == 200
+
 def ingest_new_content():
     processed = load_processed()
     new_count = 0
 
-    # 扫描 raw/digest/ 目录（消化后的产物）
+    # 扫描 raw/digest/ 目录
     digest_dir = RAW_DIR / "digest"
     if digest_dir.exists():
         for f in sorted(digest_dir.glob("*")):
             if f.name in processed or not f.is_file():
                 continue
-            try:
-                content = f.read_text(encoding="utf-8", errors="replace")[:3000]
-                if not content.strip():
-                    continue
-                doc_id = f"digest:{f.name}"
-                payload = {
-                    "collection": COLLECTION,
-                    "documents": [{
-                        "id": doc_id,
-                        "uri": str(f),
-                        "name": f.name,
-                        "type": "digest",
-                        "context_type": "knowledge",
-                        "abstract": content[:500],
-                        "description": content[:2000],
-                        "tags": "digest,second-brain",
-                        "level": 1
-                    }]
-                }
-                import requests
-                r = requests.post(OV_API, json=payload, timeout=30)
-                if r.status_code == 200:
-                    processed.add(f.name)
-                    new_count += 1
-                    logger.info(f"Ingested: {f.name}")
-                else:
-                    logger.warning(f"OV upsert failed for {f.name}: {r.text[:200]}")
-            except Exception as e:
-                logger.debug(f"OV ingest {f.name}: {e}")
+            content = f.read_text(encoding="utf-8", errors="replace")[:5000]
+            if not content.strip():
+                continue
+            uri = f"{COLLECTION_URI_PREFIX}digest/{f.name}"
+            if write_to_ov(uri, content):
+                processed.add(f.name)
+                new_count += 1
+                logger.info(f"OV write: {f.name}")
+            else:
+                logger.warning(f"OV write failed: {f.name}")
 
-    # 扫描 raw/intel/ 目录（互联网情报）
+    # 扫描 raw/intel/
     intel_dir = RAW_DIR / "intel"
     if intel_dir.exists():
         for f in sorted(intel_dir.glob("*.md")):
             if f.name in processed or not f.is_file():
                 continue
-            try:
-                content = f.read_text(encoding="utf-8", errors="replace")[:3000]
-                if not content.strip():
-                    continue
-                doc_id = f"intel:{f.name}"
-                payload = {
-                    "collection": COLLECTION,
-                    "documents": [{
-                        "id": doc_id,
-                        "uri": str(f),
-                        "name": f.name,
-                        "type": "intel",
-                        "context_type": "intelligence",
-                        "abstract": content[:500],
-                        "description": content[:2000],
-                        "tags": "intel,intelligence,second-brain",
-                        "level": 1
-                    }]
-                }
-                import requests
-                r = requests.post(OV_API, json=payload, timeout=30)
-                if r.status_code == 200:
-                    processed.add(f.name)
-                    new_count += 1
-                    logger.info(f"Ingested: {f.name}")
-            except Exception as e:
-                logger.debug(f"OV ingest {f.name}: {e}")
+            content = f.read_text(encoding="utf-8", errors="replace")[:5000]
+            if not content.strip():
+                continue
+            uri = f"{COLLECTION_URI_PREFIX}intel/{f.name}"
+            if write_to_ov(uri, content):
+                processed.add(f.name)
+                new_count += 1
+                logger.info(f"OV write: {f.name}")
 
-    # 扫描 raw/meetings/ 目录（会议纪要）
+    # 扫描 raw/meetings/
     meetings_dir = RAW_DIR / "meetings"
     if meetings_dir.exists():
         for f in sorted(meetings_dir.glob("*.md")):
             if f.name in processed or not f.is_file():
                 continue
-            try:
-                content = f.read_text(encoding="utf-8", errors="replace")[:3000]
-                if not content.strip():
-                    continue
-                doc_id = f"meeting:{f.name}"
-                payload = {
-                    "collection": COLLECTION,
-                    "documents": [{
-                        "id": doc_id,
-                        "uri": str(f),
-                        "name": f.name,
-                        "type": "meeting",
-                        "context_type": "knowledge",
-                        "abstract": content[:500],
-                        "description": content[:2000],
-                        "tags": "meeting,standup,second-brain",
-                        "level": 1
-                    }]
-                }
-                import requests
-                r = requests.post(OV_API, json=payload, timeout=30)
-                if r.status_code == 200:
-                    processed.add(f.name)
-                    new_count += 1
-                    logger.info(f"Ingested: {f.name}")
-            except Exception as e:
-                logger.debug(f"OV ingest {f.name}: {e}")
+            content = f.read_text(encoding="utf-8", errors="replace")[:5000]
+            if not content.strip():
+                continue
+            uri = f"{COLLECTION_URI_PREFIX}meetings/{f.name}"
+            if write_to_ov(uri, content):
+                processed.add(f.name)
+                new_count += 1
+                logger.info(f"OV write: {f.name}")
 
     save_processed(processed)
     logger.info(f"OV ingest done: {new_count} new documents")
