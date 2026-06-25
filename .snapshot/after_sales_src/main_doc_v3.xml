@@ -1,0 +1,298 @@
+<title>尼日利亚工商储售后服务执行方案 v1.0</title>
+
+<p><b>编制日期：</b>2026-06-25 &nbsp;&nbsp; <b>版本：</b>v1.0 &nbsp;&nbsp; <b>编制方：</b>TranESS / Higgs Energy System Limited</p>
+
+<callout emoji="📋" background-color="light-blue" border-color="blue"><p><b>本方案定位</b>：这不是一本放在书架上的手册，而是一套从下周一开始就可以执行的售后服务体系。每一章对应一个管理动作的落地输出。文末附录汇总了所有配套模板的链接。</p></callout>
+
+<h1>参考文件</h1>
+<table><colgroup><col width="200"/><col width="100"/><col width="150"/></colgroup>
+<thead><tr><th background-color="light-gray">文件</th><th background-color="light-gray">版本</th><th background-color="light-gray">来源</th></tr></thead>
+<tbody>
+<tr><td>TranESS After-Sales Service Agreement</td><td>v1.0</td><td>品牌方官方质保协议</td></tr>
+<tr><td>SLA OEM-EPC-Client</td><td>v1.0</td><td>技术服务协议</td></tr>
+<tr><td>IHY-50KH3S Installation SOP</td><td>v1.0</td><td>安装标准作业程序</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h1>第1章 — 方案全景</h1>
+
+<h2>1.1 为什么要做这件事</h2>
+
+<p>尼日利亚工商储（C&I）市场现阶段的特点是：</p>
+<ul>
+<li><b>市场早期</b> — 终端客户对储能系统不了解，售后保障是成交的关键信任要素</li>
+<li><b>EPC水平参差</b> — 安装商缺乏标准化施工能力，安装质量直接影响设备寿命和品牌口碑</li>
+<li><b>责任边界模糊</b> — 设备坏了是品牌方的锅还是安装方的锅？没有书面依据就是无穷无尽的扯皮</li>
+<li><b>合规风险</b> — 尼日利亚电气监管趋严（NERC条例），无书面交底记录的安装一旦出事，品牌方可能被追责</li>
+</ul>
+
+<callout emoji="🎯" background-color="light-green" border-color="green"><p><b>本方案的核心价值：</b>用 4 份协议 + 1 条流程 + 1 个SN码，把「品牌方→ND→EPC→客户」之间的信任链路变成可审计、可追溯、可执行的制度。</p></callout>
+
+<h2>1.2 四个角色与各自的核心利益</h2>
+
+<table>
+<colgroup><col width="80"/><col width="140"/><col width="280"/></colgroup>
+<thead><tr><th background-color="light-gray">角色</th><th background-color="light-gray">核心关切</th><th background-color="light-gray">本方案解决什么问题</th></tr></thead>
+<tbody>
+<tr><td><b>品牌方</b><br/>TranESS</td><td>品牌口碑、售后成本控制、合规免责</td><td>协议签署前置 → 安装质量问题有EPC兜底；书面记录完备 → 合规风险隔离</td></tr>
+<tr><td><b>国包ND</b><br/>Fundco</td><td>渠道关系维护、EPC管理、盈利</td><td>MOU明确EPC义务 → ND有管理抓手；保修卡回传机制 → ND体现渠道价值</td></tr>
+<tr><td><b>EPC</b></td><td>施工顺利、客户满意、回款及时</td><td>SOP+检查清单 → 减少返工；保修卡回传=质保激活 → 增强客户信任</td></tr>
+<tr><td><b>客户</b></td><td>设备可靠、坏了有人修</td><td>明确的质保承诺+报修通道 → 投资安全感</td></tr>
+</tbody></table>
+
+<h2>1.3 覆盖的产品</h2>
+<p>本方案适用于以下通过授权渠道（ND Fundco）销售的TranESS C&I产品：</p>
+<ul>
+<li><b>Itel Energy：</b>IHY-50KH3S 混合逆变器（50kW）、IC-H60X 高压箱、IB-H51100-X-G1 电池包（5kWh）、IPX-51314SPT 电池包（16kWh）</li>
+<li><b>DYQUE：</b>DC-125K241-YG1 光储一体化系统（125kW/241kWh）</li>
+</ul>
+
+<hr/>
+
+<h1>第2章 — 核心流程：从订单到质保激活</h1>
+
+<h2>2.1 一句话说清楚</h2>
+
+<callout emoji="🔁" background-color="light-yellow" border-color="yellow">
+<p><b>保修卡随货出 → MOU定规矩 → 签协议后安装 → 副本回传才激活</b></p>
+<p>没有签署技术交底和质量免责协议 → 品牌方不提供质保。</p>
+</callout>
+
+<h2>2.2 八步全景图</h2>
+
+<table>
+<colgroup><col width="40"/><col width="100"/><col width="160"/><col width="80"/><col width="80"/></colgroup>
+<thead><tr><th background-color="light-gray">#</th><th background-color="light-gray">步骤</th><th background-color="light-gray">具体动作</th><th background-color="light-gray">责任方</th><th background-color="light-gray">输出物</th></tr></thead>
+<tbody>
+<tr><td><b>1</b></td><td>项目确认</td><td>客户下单，EPC确定，ND确认项目信息</td><td>ND</td><td>项目登记表</td></tr>
+<tr><td><b>2</b></td><td>ND-EPC签约</td><td>签署年度MOU框架协议（模板见附录），明确文件要求和质保生效条件</td><td>ND × EPC</td><td>签署的MOU</td></tr>
+<tr><td><b>3</b></td><td>设备发货</td><td>品牌方随设备发出保修卡（一式两份，含唯一SN码贴纸），ND分发至EPC</td><td>品牌方 → ND</td><td>设备+保修卡</td></tr>
+<tr><td><b>4</b></td><td>方案审核</td><td>品牌方C&I技术团队审核安装方案、BOM、图纸（远程即可）</td><td>品牌方</td><td>方案审核确认</td></tr>
+<tr><td><b>5</b></td><td>⛔ 签署协议</td><td>安装前，EPC与客户签署两份协议（ND见证代签），否则不得施工</td><td>EPC × 客户 / ND见证</td><td>两份签署的协议</td></tr>
+<tr><td><b>6</b></td><td>安装施工</td><td>EPC按IHY-50KH3S SOP施工，完成质量控制清单，关键节点拍照</td><td>EPC</td><td>完成的检查清单+照片</td></tr>
+<tr><td><b>7</b></td><td>调试验收</td><td>品牌方远程/现场参与调试，客户验收签字</td><td>品牌方+EPC+客户</td><td>验收记录</td></tr>
+<tr><td><b>8</b></td><td>⛔ 质保激活</td><td>EPC填写保修卡（安装日期+三方签字），副本回传ND→品牌方。品牌方审核通过后激活SN码，质保生效。⛔ 未回传=不提供质保</td><td>EPC→ND→品牌方</td><td>保修卡副本+SN码激活</td></tr>
+</tbody></table>
+
+<callout emoji="⛔" background-color="light-red" border-color="red"><p><b>第5步和第8步是强制性的。</b>这2步没有完成 → 品牌方不对该设备提供任何质保。这个条款必须在MOU中白纸黑字写明，并由ND向EPC明确传达。</p></callout>
+
+<h2>2.3 为什么是这8步？</h2>
+<p>每一步对应一个管理动作的输出物：</p>
+<ul>
+<li><b>步骤1-4</b> — 商务准备工作，输出物是签约、发货、审核记录</li>
+<li><b>步骤5</b> — <b>合规关卡</b>，解决「安装出事了谁负责」的问题</li>
+<li><b>步骤6</b> — <b>质量关卡</b>，解决「装得对不对」的问题</li>
+<li><b>步骤7</b> — <b>技术关卡</b>，解决「系统能不能用」的问题</li>
+<li><b>步骤8</b> — <b>法律关卡</b>，解决「质保何时起算」的问题</li>
+</ul>
+
+<hr/>
+
+<h1>第3章 — 质保政策的实操解读</h1>
+
+<h2>3.1 质保期限速查</h2>
+
+<table>
+<colgroup><col width="200"/><col width="100"/><col width="160"/></colgroup>
+<thead><tr><th background-color="light-gray">组件</th><th background-color="light-gray">质保期</th><th background-color="light-gray">起始日</th></tr></thead>
+<tbody>
+<tr><td>IHY-50KH3S 逆变器</td><td><b>5年</b></td><td rowspan="4">保修卡副本回传品牌方<br/>审核通过之日</td></tr>
+<tr><td>IC-H60X 高压箱</td><td><b>5年</b></td></tr>
+<tr><td>IB-H51100 / IPX-51314SPT 电池包</td><td><b>5年</b></td></tr>
+<tr><td>DC-125K241-YG1 系统</td><td><b>5年</b></td></tr>
+<tr><td>配件（端子/仪表/线缆/连接器）</td><td><b>不在质保范围</b></td><td>—</td></tr>
+</tbody></table>
+
+<h2>3.2 质保生效的4个必要条件</h2>
+
+<checkbox done="false">设备通过合规渠道（ND Fundco）购买</checkbox>
+<checkbox done="false">品牌方C&I技术团队参与了安装前方案审核</checkbox>
+<checkbox done="false">EPC与客户签署了技术交底协议和质量安全免责协议（ND见证）</checkbox>
+<checkbox done="false">保修卡副本（含三方签字）已回传品牌方</checkbox>
+
+<callout emoji="⚠️" background-color="light-red" border-color="red"><p><b>以上4项缺任何一项 → 品牌方不提供质保。</b>不是「质保延后」，是「不提供」。这个条款是底线，不能妥协。ND必须让每个EPC在签MOU时清楚这一点。</p></callout>
+
+<h2>3.3 常见免责场景（TranESS官方协议第8条）</h2>
+
+<p>以下情况即使设备在质保期内，品牌方也不承担质保责任：</p>
+<ul>
+<li>安装不按规范操作（线缆规格不符、接地不良、CT方向反了等）</li>
+<li>客户私自拆卸、改装、维修</li>
+<li>使用环境不达标（温度超范围、湿度过高、海拔超限） — 见TranESS协议第10条</li>
+<li>连续6个月未运行或未充电</li>
+<li>不可抗力（雷击、洪水、火灾）</li>
+<li><b>未提前通知C&I技术团队就自行安装的</b></li>
+</ul>
+
+<hr/>
+
+<h1>第4章 — 四方执行手册（项目经理可以直接拿着用）</h1>
+
+<h2>4.1 品牌方内部SOP</h2>
+
+<h3>日常操作</h3>
+<checkbox done="false">每周一检查待激活SN码清单，跟进ND的回传进度</checkbox>
+<checkbox done="false">审核EPC提交的安装方案和BOM（24小时内回复）</checkbox>
+<checkbox done="false">参与新项目的远程调试（通过WhatsApp视频或飞书会议）</checkbox>
+
+<h3>SN码激活流程</h3>
+<p>收到保修卡副本后：</p>
+<ol>
+<li seq="auto">检查三方签字是否完整（客户+EPC+ND）</li>
+<li seq="auto">核对SN码与设备型号是否匹配</li>
+<li seq="auto">检查安装日期是否在合理范围内</li>
+<li seq="auto">审核通过 → 在SN码管理表中将状态从PENDING改为ACTIVE，填写激活日期</li>
+<li seq="auto">存档保修卡副本（纸质扫描件或电子版，保存至少7年）</li>
+</ol>
+
+<h3>培训要求</h3>
+<ul>
+<li>每季度至少组织1次ND团队的质保政策培训</li>
+<li>新EPC签约前需完成1次安装技术培训（线上可完成）</li>
+<li>培训后出具授权安装资格证书，有效期1年</li>
+</ul>
+
+<h2>4.2 ND（国包）执行手册</h2>
+
+<h3>签约阶段</h3>
+<checkbox done="false">与每家合作EPC签署年度MOU（模板见附录），重点是第2条和第3条</checkbox>
+<checkbox done="false">收集EPC的营业执照、资质证书、负责人电工执照复印件</checkbox>
+<checkbox done="false">向EPC逐条讲解：签协议→回传保修卡→质保才生效</checkbox>
+
+<h3>项目实施</h3>
+<checkbox done="false">从品牌方收到设备后，检查保修卡是否齐全、SN码是否清晰</checkbox>
+<checkbox done="false">安装前到达现场（或指定代表），见证EPC与客户签署两份协议</checkbox>
+<checkbox done="false">检查协议填写是否完整（日期、项目名、型号、签字）</checkbox>
+<checkbox done="false">在三份文件上签字见证（ND留存一份副本）</checkbox>
+
+<h3>回传管理</h3>
+<checkbox done="false">EPC安装完成后，回收保修卡副本</checkbox>
+<checkbox done="false">检查：SN码✓ 客户签名✓ EPC签名✓ ND签名✓ 日期✓</checkbox>
+<checkbox done="false">每周五汇总本周完成的保修卡副本，扫描/拍照后打包发品牌方</checkbox>
+<checkbox done="false">纸质原件按项目存档备查</checkbox>
+
+<h2>4.3 EPC执行手册</h2>
+
+<h3>安装前（必须完成的5件事）</h3>
+<checkbox done="false">确认与ND的MOU已签署</checkbox>
+<checkbox done="false">确认品牌方已审核安装方案</checkbox>
+<checkbox done="false">对照IHY-50KH3S SOP检查工具和物料清单</checkbox>
+<checkbox done="false">确认现场条件满足安装要求（通风、承重、间距）</checkbox>
+<checkbox done="false"><b>与客户签署技术交底协议和质量安全免责协议（ND见证）</b></checkbox>
+
+<h3>安装中</h3>
+<p>参照附录中的《IHY-50KH3S安装质量控制清单》逐项执行，每完成一项打勾：</p>
+<ul>
+<li>① 安装前检查（4项）</li>
+<li>② 电气连接（8项 — CT方向、接地、极性是高频出错点）</li>
+<li>③ 调试（7项）</li>
+<li>④ 验收（6项）</li>
+</ul>
+
+<h3>安装后</h3>
+<checkbox done="false">完成质量控制清单，EPC签字</checkbox>
+<checkbox done="false">配合品牌方完成调试</checkbox>
+<checkbox done="false">填写保修卡（安装日期、客户签字、EPC签字）</checkbox>
+<checkbox done="false">保修卡副本 + 安装照片 + 测试记录 → 提交ND</checkbox>
+
+<h2>4.4 客户须知</h2>
+
+<callout emoji="💡" background-color="light-yellow" border-color="yellow"><p><b>作为客户，您只需要做3件事：</b><br/>1. 安装前：确认EPC让您签了两份文件（技术交底+质量免责），不签就不让开工<br/>2. 安装后：确认保修卡已填写并签字<br/>3. 使用中：按说明书操作，发现异常第一时间联系EPC</p></callout>
+
+<hr/>
+
+<h1>第5章 — 异常处理：谁在什么时间内做什么</h1>
+
+<h2>5.1 三级升级路径</h2>
+
+<p><b>客户发现设备异常 →</b></p>
+
+<table>
+<colgroup><col width="120"/><col width="200"/><col width="100"/></colgroup>
+<thead><tr><th background-color="light-gray">级别</th><th background-color="light-gray">处置方</th><th background-color="light-gray">响应时限</th></tr></thead>
+<tbody>
+<tr><td><b>第1级</b></td><td>EPC现场诊断。常见问题直接处理（参数调整、重启、接线检查）</td><td><b>24小时内</b></td></tr>
+<tr><td><b>第2级</b></td><td>EPC无法解决 → 上报ND。ND协调品牌方远程技术支持</td><td><b>48小时内</b></td></tr>
+<tr><td><b>第3级</b></td><td>远程无法解决 → 品牌方安排现场支持或返厂维修</td><td><b>72小时内</b></td></tr>
+</tbody></table>
+
+<h2>5.2 常见故障处理速查</h2>
+
+<table>
+<colgroup><col width="120"/><col width="200"/><col width="100"/><col width="60"/></colgroup>
+<thead><tr><th background-color="light-gray">故障现象</th><th background-color="light-gray">排查路径</th><th background-color="light-gray">负责方</th><th background-color="light-gray">时限</th></tr></thead>
+<tbody>
+<tr><td>逆变器不启动</td><td>①检查电网电压和频率 → ②检查电池电压 → ③检查通讯线 → ④上报ND</td><td>EPC → 品牌方</td><td>24h</td></tr>
+<tr><td>PV发电异常</td><td>①检查PV组串电压 → ②检查MC4连接器 → ③检查CT方向</td><td>EPC</td><td>24h</td></tr>
+<tr><td>电池不充电/放电</td><td>①检查BMS通讯 → ②检查DC断路器 → ③检查SOC状态</td><td>EPC → 品牌方</td><td>24h</td></tr>
+<tr><td>系统频繁报警</td><td>①查看报警代码 → ②对照SOP故障代码表 → ③检查参数设置</td><td>EPC</td><td>24h</td></tr>
+<tr><td>远程监控离线</td><td>①检查通讯模块指示灯 → ②检查SIM卡/网络 → ③检查COM2接线</td><td>EPC</td><td>24h</td></tr>
+<tr><td>安装质量问题</td><td>①记录问题 → ②EPC免费整改 → ③整改后拍照确认</td><td>EPC</td><td>按工期</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h1>第6章 — MVP落地计划</h1>
+
+<h2>6.1 第一个月做什么</h2>
+
+<table>
+<colgroup><col width="100"/><col width="160"/><col width="100"/><col width="100"/></colgroup>
+<thead><tr><th background-color="light-gray">周次</th><th background-color="light-gray">事项</th><th background-color="light-gray">负责人</th><th background-color="light-gray">产出</th></tr></thead>
+<tbody>
+<tr><td><b>第1周</b></td><td>方案定稿：与Fundco对齐MOU内容、确认EPC清单</td><td>品牌方+ND</td><td>确认后的MOU模板</td></tr>
+<tr><td><b>第2周</b></td><td>保修卡印刷（首批500张含SN码贴纸）、搭建SN码管理表</td><td>品牌方</td><td>实物保修卡+Excel系统</td></tr>
+<tr><td><b>第3周</b></td><td>对ND团队进行1次线上培训（1小时），ND对其EPC转训</td><td>品牌方→ND→EPC</td><td>培训记录</td></tr>
+<tr><td><b>第4周</b></td><td>选3个待安装项目试跑：走完整8步流程</td><td>ND+EPC</td><td>3份完整档案</td></tr>
+</tbody></table>
+
+<h2>6.2 第二个月做什么</h2>
+<ul>
+<li>试点复盘：哪些步骤执行顺利？哪里卡住了？</li>
+<li>根据反馈优化流程 → 出v1.1版本</li>
+<li>扩大到所有项目执行</li>
+</ul>
+
+<hr/>
+
+<h1>第7章 — 风险与应对</h1>
+
+<table>
+<colgroup><col width="150"/><col width="150"/><col width="200"/></colgroup>
+<thead><tr><th background-color="light-gray">风险</th><th background-color="light-gray">后果</th><th background-color="light-gray">应对</th></tr></thead>
+<tbody>
+<tr><td>EPC不配合签协议</td><td>流程卡在第5步，客户拿不到质保</td><td>MOU白纸黑字写扣款条款；告诉EPC「不签协议客户就是裸奔，设备坏了你自己赔」</td></tr>
+<tr><td>保修卡丢失</td><td>质保无法激活</td><td>随货发出电子版PDF（WhatsApp/邮件可转发），EPC打印签字即可</td></tr>
+<tr><td>ND人手不够</td><td>没人去现场见证签字</td><td>品牌方指定1人每周与ND对账，超3个未完成项目ND需说明原因</td></tr>
+<tr><td>客户在海外/不在现场</td><td>签不了字</td><td>电子签：客户通过WhatsApp确认"已阅读并同意"，EPC截图存档</td></tr>
+<tr><td>EPC安装质量差</td><td>频繁报修</td><td>首年每项目派品牌方技术远程回访；质量问题多的EPC列入观察名单</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h1>附录A — 配套文档索引</h1>
+
+<p>以下文件均可直接下载使用：</p>
+
+<table>
+<colgroup><col width="160"/><col width="120"/><col width="180"/></colgroup>
+<thead><tr><th background-color="light-gray">文档</th><th background-color="light-gray">PDF下载</th><th background-color="light-gray">飞书云文档</th></tr></thead>
+<tbody>
+<tr><td><b>保修卡模板</b> — A5双面印刷，含质保生效确认函</td><td><a href="https://transsioner.feishu.cn/file/KYpjbIBm8olfBXx4LdqcVl2KnJc">📄 下载PDF</a></td><td><a href="https://transsioner.feishu.cn/docx/DDaedkbPwoFuwXxYAm5cTd0Znne">云文档版</a></td></tr>
+<tr><td><b>技术交底协议模板</b> — EPC与客户的操作交底确认</td><td><a href="https://transsioner.feishu.cn/file/EOjsbRl1Aoypg4xDwfQccY9Pn6c">📄 下载PDF</a></td><td><a href="https://transsioner.feishu.cn/docx/L8KqdgRhyoRby3xcNG6c5kKvnqg">云文档版</a></td></tr>
+<tr><td><b>质量安全免责协议模板</b> — 施工质量与安全责任划分</td><td><a href="https://transsioner.feishu.cn/file/IyKabG71AoJHEIxz9ptc0g8LnT7">📄 下载PDF</a></td><td><a href="https://transsioner.feishu.cn/docx/RphFdnSzJo3WN9xhUqrcvdkunuh">云文档版</a></td></tr>
+<tr><td><b>国包-EPC MOU模板</b> — 年度框架合作协议</td><td><a href="https://transsioner.feishu.cn/file/GCvMbq7p8oLA4hxvbJWcVwMdnnd">📄 下载PDF</a></td><td><a href="https://transsioner.feishu.cn/docx/GnlsdWrDZoHPdGx5DqmcbUddn7d">云文档版</a></td></tr>
+<tr><td><b>IHY-50KH3S安装质量控制清单</b> — EPC现场打勾用</td><td><a href="https://transsioner.feishu.cn/file/EOlfbBHiqo4FhUxyTlyctvomnWc">📄 下载PDF</a></td><td><a href="https://transsioner.feishu.cn/docx/VmSgdMLMsoUgz5xFbTgcwhVPnnf">云文档版</a></td></tr>
+</tbody></table>
+
+<hr/>
+
+<h1>版本记录</h1>
+
+<table>
+<colgroup><col width="80"/><col width="120"/><col width="200"/><col width="80"/></colgroup>
+<thead><tr><th background-color="light-gray">版本</th><th background-color="light-gray">日期</th><th background-color="light-gray">修订内容</th><th background-color="light-gray">修订人</th></tr></thead>
+<tbody>
+<tr><td>v1.0</td><td>2026-06-25</td><td>初版。含方案全景、8步流程、质保政策、四方SOP、异常处理、MVP计划</td><td>二狗</td></tr>
+</tbody></table>
