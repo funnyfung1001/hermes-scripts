@@ -96,10 +96,25 @@ def collect_whatsapp():
     if not bridge:
         logger.debug("WhatsApp bridge not configured")
         return
-    
+
+    # 读取 api_key
+    env_path = Path.home() / ".hermes" / ".env"
+    api_key = ""
+    if env_path.exists():
+        for line in open(env_path):
+            line = line.strip()
+            if "WHATSAPP_API_KEY" in line:
+                raw = line.split("=", 1)[1].strip()
+                api_key = raw.strip("'").strip('"')
+                break
+
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
     try:
         # 获取群列表
-        r = requests.get(f"{bridge}/api/groups", timeout=30)
+        r = requests.get(f"{bridge}/api/groups", headers=headers, timeout=30)
         if r.status_code != 200:
             return
         groups = r.json().get("groups", [])
@@ -113,10 +128,11 @@ def collect_whatsapp():
             gid = g.get("id", "")
             gname = g.get("name", "unknown")
             try:
-                r2 = requests.get(f"{bridge}/api/groups/{gid}/messages?limit=50", timeout=30)
+                r2 = requests.get(f"{bridge}/api/groups/{gid}/messages?limit=50", headers=headers, timeout=30)
                 if r2.status_code == 200:
-                    msgs = r2.json().get("messages", [])
-                    if msgs:
+                    msgs = r2.json().get("messages", r2.json())
+                    if isinstance(msgs, list) and msgs:
+                        import json
                         out = wd / f"wa_group_{gname}_{ts}.json"
                         out.write_text(json.dumps(msgs, ensure_ascii=False, indent=2))
                         logger.info(f"WA group {gname}: {len(msgs)} msgs")
@@ -125,10 +141,10 @@ def collect_whatsapp():
         
         # 私聊消息
         try:
-            r3 = requests.get(f"{bridge}/api/chats?type=private&limit=50", timeout=30)
+            r3 = requests.get(f"{bridge}/api/chats?type=private&limit=50", headers=headers, timeout=30)
             if r3.status_code == 200:
-                pmsgs = r3.json().get("messages", [])
-                if pmsgs:
+                pmsgs = r3.json().get("messages", r3.json())
+                if isinstance(pmsgs, list) and pmsgs:
                     out = wd / f"wa_private_{ts}.json"
                     out.write_text(json.dumps(pmsgs, ensure_ascii=False, indent=2))
                     logger.info(f"WA private: {len(pmsgs)} msgs")
