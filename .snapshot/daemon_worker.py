@@ -156,10 +156,9 @@ def collect_whatsapp():
 # ── 2. 飞书全量采集（群消息+私聊） ──
 def collect_feishu_all():
     try:
-        import feishu_raw_collector as frc
-        frc.collect_all_groups()
-        frc.collect_group_messages()
-        logger.info("Feishu: groups + messages collected")
+        import feishu_all_collector as fac
+        fac.main()
+        logger.info("Feishu: all collected")
     except Exception as e:
         logger.debug(f"Feishu collect: {e}")
 
