@@ -97,10 +97,62 @@ def doc_append(doc_token, content):
     except Exception:
         return False
 
-# -- 本地32B + DeepSeek 降级 --
+# -- 本地32B（无降级，内容自动分段） --
 def call_llm(prompt, timeout=600):
-    """调用本地32B模型，超时降级到 DeepSeek"""
-    # 先试本地32B
+    """调用本地32B模型，大内容自动分段处理"""
+    import requests
+
+    # 如果超过 2500 字符，按段落切块
+    if len(prompt) > 2500:
+        paragraphs = prompt.split("\n\n")
+        chunks = []
+        current = ""
+        for para in paragraphs:
+            if len(current) + len(para) < 2000:
+                current += para + "\n\n"
+            else:
+                if current:
+                    chunks.append(current.strip())
+                current = para + "\n\n"
+        if current:
+            chunks.append(current.strip())
+        if len(chunks) <= 1:
+            chunks = [prompt[:2000]]
+
+        results = []
+        for i, chunk in enumerate(chunks):
+            sys_prompt = "你是C&I Nigeria业务分析师。"
+            if i == 0:
+                sys_prompt += "分析以下第一部分内容。"
+            elif i == len(chunks) - 1:
+                sys_prompt += "这是最后部分。汇总前面分析，输出综合结论。"
+            else:
+                sys_prompt += "继续分析以下内容的中间部分。"
+
+            try:
+                resp = requests.post(
+                    "http://localhost:8080/v1/chat/completions",
+                    json={
+                        "messages": [
+                            {"role": "system", "content": sys_prompt},
+                            {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
+                        ],
+                        "max_tokens": 800,
+                        "temperature": 0.1
+                    },
+                    timeout=timeout
+                )
+                if resp.status_code == 200:
+                    part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if part:
+                        results.append(part)
+            except Exception:
+                pass
+        if results:
+            return "\n\n---\n".join(results)
+        return ""
+
+    # 短内容直接处理
     try:
         resp = requests.post(
             "http://localhost:8080/v1/chat/completions",
@@ -108,42 +160,10 @@ def call_llm(prompt, timeout=600):
                   "temperature": 0.1, "max_tokens": 4096},
             timeout=timeout
         )
-        data = resp.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if content:
-            return content
-    except Exception as e:
-        logger.debug(f"32B call failed: {e}")
-
-    # 降级到 DeepSeek
-    try:
-        # 从环境变量或 .env 读取 key
-        ds_key = os.environ.get("DEEPSEEK_API_KEY", "")
-        if not ds_key:
-            env_path = Path.home() / ".hermes" / ".env"
-            if env_path.exists():
-                for line in open(env_path):
-                    if "DEEPSEEK_API_KEY" in line:
-                        raw_val = line.split("=", 1)[1].strip()
-                        ds_key = raw_val.strip("'").strip('"')
-                        break
-        if not ds_key:
-            return ""
-        resp = requests.post(
-            "https://api.deepseek.com/v1/chat/completions",
-            json={
-                "model": "deepseek-chat",
-                "messages": [{"role": "user", "content": prompt[:3000]}],
-                "max_tokens": 2000,
-                "temperature": 0.2
-            },
-            headers={"Authorization": f"Bearer {ds_key}"},
-            timeout=60
-        )
         return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception as e:
-        logger.error(f"DeepSeek fallback failed: {e}")
-    return ""
+        logger.error(f"32B call failed: {e}")
+        return ""
 
 # -- 查找关联数据源 --
 def find_related_sources(date_str):

@@ -14,50 +14,75 @@ from config_shared import setup_logger, SECOND_BRAIN, RAW_DIR
 logger = setup_logger("daemon_digest", "daemon_digest.log")
 
 def call_llm(prompt, timeout=600):
-    """调用本地32B模型，超时后降级到 DeepSeek（仅非敏感摘要内容）"""
+    """调用本地32B模型，大内容自动分段处理"""
     import requests
 
-    # 先试本地32B
+    # 如果超过 2500 字符，按段落切块，逐块处理
+    if len(prompt) > 2500:
+        import textwrap
+        # 按段落切，每段最多 2000 字符
+        paragraphs = prompt.split("\n\n")
+        chunks = []
+        current = ""
+        for para in paragraphs:
+            if len(current) + len(para) < 2000:
+                current += para + "\n\n"
+            else:
+                if current:
+                    chunks.append(current.strip())
+                current = para + "\n\n"
+        if current:
+            chunks.append(current.strip())
+
+        if len(chunks) <= 1:
+            # 只有一段，直接处理
+            chunks = [prompt[:2000]]
+
+        results = []
+        for i, chunk in enumerate(chunks):
+            sys_prompt = "你是一名C&I Nigeria业务分析师。请分析以下内容，输出简洁分析。"
+            if i > 0:
+                sys_prompt = "你是一名C&I Nigeria业务分析师。请继续分析以下内容的剩余部分。"
+            if len(chunks) > 1 and i == len(chunks) - 1:
+                sys_prompt = "这是最后一部分内容。请汇总前面的分析，输出最终的综合摘要。"
+
+            try:
+                resp = requests.post(
+                    "http://localhost:8080/v1/chat/completions",
+                    json={
+                        "messages": [
+                            {"role": "system", "content": sys_prompt},
+                            {"role": "user", "content": f"第{i+1}/{len(chunks)}部分：{chunk}"}
+                        ],
+                        "max_tokens": 800,
+                        "temperature": 0.1
+                    },
+                    timeout=timeout
+                )
+                if resp.status_code == 200:
+                    part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if part:
+                        results.append(part)
+            except Exception:
+                pass
+
+        if results:
+            return "\n\n---\n".join(results)
+        return ""
+
+    # 短内容直接处理
     try:
         resp = requests.post(
             "http://localhost:8080/v1/chat/completions",
             json={
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 800,
+                "max_tokens": 1200,
                 "temperature": 0.1
             },
             timeout=timeout
         )
         if resp.status_code == 200:
-            content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-            if content:
-                return content
-    except Exception:
-        pass
-
-    # 超时降级到 DeepSeek
-    try:
-        env_path = Path.home() / ".hermes" / ".env"
-        api_key = ""
-        for line in open(env_path):
-            line = line.strip()
-            if line.startswith("DEEPSEEK_API_KEY="):
-                api_key = line.split("=", 1)[1].strip().strip("\"'")
-                break
-        if api_key:
-            resp = requests.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": prompt[:3000]}],
-                    "max_tokens": 1000,
-                    "temperature": 0.1
-                },
-                headers={"Authorization": "Bearer " + api_key},
-                timeout=60
-            )
-            if resp.status_code == 200:
-                return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception:
         pass
     return ""

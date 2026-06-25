@@ -21,8 +21,53 @@ from config_shared import (
 
 logger = setup_logger("daemon_worker", "daemon_worker.log")
 
-# ── 本地32B ──
+# ── 本地32B（自动分段） ──
 def call_llm(prompt, timeout=600):
+    """调用本地32B模型，大内容自动分段"""
+    import requests
+
+    if len(prompt) > 2500:
+        paragraphs = prompt.split("\n\n")
+        chunks = []
+        current = ""
+        for para in paragraphs:
+            if len(current) + len(para) < 2000:
+                current += para + "\n\n"
+            else:
+                if current:
+                    chunks.append(current.strip())
+                current = para + "\n\n"
+        if current:
+            chunks.append(current.strip())
+        if len(chunks) <= 1:
+            chunks = [prompt[:2000]]
+
+        results = []
+        for i, chunk in enumerate(chunks):
+            ctx = "分析第一部分。" if i == 0 else ("汇总前面分析，输出综合结论。" if i == len(chunks)-1 else "继续分析中间部分。")
+            try:
+                resp = requests.post(
+                    LOCAL_LLM_ENDPOINT,
+                    json={
+                        "messages": [
+                            {"role": "system", "content": f"你是C&I Nigeria业务分析师。{ctx}"},
+                            {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
+                        ],
+                        "max_tokens": 800,
+                        "temperature": 0.1
+                    },
+                    timeout=timeout
+                )
+                if resp.status_code == 200:
+                    part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if part:
+                        results.append(part)
+            except Exception:
+                pass
+        if results:
+            return "\n\n---\n".join(results)
+        return ""
+
     try:
         resp = requests.post(
             LOCAL_LLM_ENDPOINT,
