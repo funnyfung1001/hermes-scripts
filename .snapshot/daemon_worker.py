@@ -82,6 +82,16 @@ def call_llm(prompt, timeout=600):
 
 # ── 1. WhatsApp 全量采集 ──
 def collect_whatsapp():
+    """采集 WhatsApp 消息"""
+    # 从 .env 加载 Bridge 配置
+    env_path = Path.home() / ".hermes" / ".env"
+    if env_path.exists():
+        for line in open(env_path):
+            line = line.strip()
+            if "WHATSAPP_BRIDGE" in line:
+                raw = line.split("=", 1)[1].strip()
+                os.environ["WHATSAPP_BRIDGE"] = raw.strip("\"'").strip("'")
+                break
     bridge = os.environ.get("WHATSAPP_BRIDGE", "")
     if not bridge:
         logger.debug("WhatsApp bridge not configured")
