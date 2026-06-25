@@ -91,7 +91,7 @@ def doc_append(doc_token, content):
 
 # ── 本地32B ──
 def call_llm(prompt, timeout=600):
-    """调用本地32B模型"""
+    """调用本地32B模型，超时降级到 DeepSeek"""
     try:
         resp = requests.post(
             LOCAL_LLM_ENDPOINT,
@@ -100,9 +100,36 @@ def call_llm(prompt, timeout=600):
             timeout=timeout
         )
         data = resp.json()
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if content:
+            return content
     except Exception as e:
-        logger.error(f"LLM call failed: {e}")
+        logger.error(f"32B call failed: {e}")
+
+    # 降级到 DeepSeek
+    try:
+        env_path = Path.home() / ".hermes" / ".env"
+        api_key = ""
+        for line in open(env_path):
+            line = line.strip()
+                        if "DEEPSEEK_API_KEY" in line:
+                break
+        if not api_key:
+            return ""
+        resp = requests.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt[:3000]}],
+                "max_tokens": 2000,
+                "temperature": 0.2
+            },
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=120
+        )
+        return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error(f"DeepSeek fallback failed: {e}")
         return ""
 
 # ── 查找关联数据源 ──
