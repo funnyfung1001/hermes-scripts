@@ -166,12 +166,10 @@ def search_web(query, limit=3):
                     item["domain"] = s["domain"]
                     item["found_date"] = s["found_date"]
                     scored.append(item)
-                # 按分数倒序
+                # 按分数倒序，但保留所有结果（带评分标注让 LLM 判断）
                 scored.sort(key=lambda x: x["score"], reverse=True)
-                # 只返回高质量结果（分数 > 0）或取最高分
-                good = [r for r in scored if r["score"] >= 0] or scored[:limit]
-                logger.debug(f"DDGS: {len(results)} raw, {len(good)} after scoring")
-                return good[:limit]
+                logger.debug(f"DDGS: {len(results)} raw, {len(scored)} after scoring")
+                return scored[:limit]
     except Exception as e:
         logger.debug(f"DDGS failed for '{query}': {e}")
 
@@ -186,9 +184,10 @@ def search_web(query, limit=3):
                 for r in results:
                     item = {"title": r.get("title", ""), "content": r.get("body", ""), "url": r.get("href", "")}
                     s = score_result(item)
-                    if s["score"] >= 0:
-                        item["score"] = s["score"]
-                        scored.append(item)
+                    item["score"] = s["score"]
+                    item["score_reasons"] = s["reasons"]
+                    item["domain"] = s["domain"]
+                    scored.append(item)
                 scored.sort(key=lambda x: x["score"], reverse=True)
                 if scored:
                     return scored[:limit]
