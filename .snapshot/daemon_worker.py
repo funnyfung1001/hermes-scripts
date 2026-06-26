@@ -26,12 +26,12 @@ def call_llm(prompt, timeout=600):
     """调用本地32B模型，大内容自动分段"""
     import requests
 
-    if len(prompt) > 2500:
+    if len(prompt) > 1200:
         paragraphs = prompt.split("\n\n")
         chunks = []
         current = ""
         for para in paragraphs:
-            if len(current) + len(para) < 2000:
+            if len(current) + len(para) < 800:
                 current += para + "\n\n"
             else:
                 if current:
@@ -40,7 +40,7 @@ def call_llm(prompt, timeout=600):
         if current:
             chunks.append(current.strip())
         if len(chunks) <= 1:
-            chunks = [prompt[:2000]]
+            chunks = [prompt[:800]]
 
         results = []
         for i, chunk in enumerate(chunks):
@@ -53,10 +53,10 @@ def call_llm(prompt, timeout=600):
                             {"role": "system", "content": f"你是C&I Nigeria业务分析师。{ctx}"},
                             {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
                         ],
-                        "max_tokens": 800,
+                        "max_tokens": 400,
                         "temperature": 0.1
                     },
-                    timeout=timeout
+                    timeout=180
                 )
                 if resp.status_code == 200:
                     part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -156,6 +156,9 @@ def collect_whatsapp():
 # ── 2. 飞书全量采集（群消息+私聊） ──
 def collect_feishu_all():
     try:
+        # 确保 HOME 环境变量存在（daemon/cron 环境可能缺失）
+        if "HOME" not in os.environ:
+            os.environ["HOME"] = str(Path.home())
         import feishu_all_collector as fac
         fac.main()
         logger.info("Feishu: all collected")
