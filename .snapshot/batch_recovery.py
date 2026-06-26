@@ -102,13 +102,13 @@ def call_llm(prompt, timeout=600):
     """调用本地32B模型，大内容自动分段处理"""
     import requests
 
-    # 如果超过 2500 字符，按段落切块
-    if len(prompt) > 2500:
+    # 如果超过 1200 字符，按段落切块
+    if len(prompt) > 1200:
         paragraphs = prompt.split("\n\n")
         chunks = []
         current = ""
         for para in paragraphs:
-            if len(current) + len(para) < 2000:
+            if len(current) + len(para) < 800:
                 current += para + "\n\n"
             else:
                 if current:
@@ -117,17 +117,17 @@ def call_llm(prompt, timeout=600):
         if current:
             chunks.append(current.strip())
         if len(chunks) <= 1:
-            chunks = [prompt[:2000]]
+            chunks = [prompt[:800]]
 
         results = []
         for i, chunk in enumerate(chunks):
             sys_prompt = "你是C&I Nigeria业务分析师。"
             if i == 0:
-                sys_prompt += "分析以下第一部分内容。"
+                sys_prompt += "分析以下第一部分。"
             elif i == len(chunks) - 1:
-                sys_prompt += "这是最后部分。汇总前面分析，输出综合结论。"
+                sys_prompt += "这是最后部分。输出综合结论。"
             else:
-                sys_prompt += "继续分析以下内容的中间部分。"
+                sys_prompt += "继续分析中间部分。"
 
             try:
                 resp = requests.post(
@@ -137,10 +137,10 @@ def call_llm(prompt, timeout=600):
                             {"role": "system", "content": sys_prompt},
                             {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
                         ],
-                        "max_tokens": 800,
+                        "max_tokens": 400,
                         "temperature": 0.1
                     },
-                    timeout=timeout
+                    timeout=180
                 )
                 if resp.status_code == 200:
                     part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
