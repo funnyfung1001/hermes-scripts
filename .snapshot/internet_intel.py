@@ -50,8 +50,8 @@ def _load_env():
 def search_web(query, limit=3):
     """使用 DuckDuckGo 搜索（duckduckgo_search 库，模拟浏览器行为）"""
     try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
+        from duckduckgo_search import DDGS as DDGSLib
+        with DDGSLib() as ddgs:
             results = list(ddgs.text(query, max_results=limit))
             if results:
                 logger.debug(f"DDGS: {len(results)} results")
@@ -61,9 +61,9 @@ def search_web(query, limit=3):
 
     # Fallback: 精简 query 再试
     try:
-        from duckduckgo_search import DDGS
+        from duckduckgo_search import DDGS as DDGSLib
         short_q = " ".join(query.split()[:5])
-        with DDGS() as ddgs:
+        with DDGSLib() as ddgs:
             results = list(ddgs.text(short_q, max_results=limit))
             if results:
                 logger.debug(f"DDGS fallback: {len(results)} results")
