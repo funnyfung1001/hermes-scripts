@@ -102,13 +102,13 @@ def call_llm(prompt, timeout=600):
     """调用本地32B模型，大内容自动分段处理"""
     import requests
 
-    # 如果超过 1200 字符，按段落切块
-    if len(prompt) > 1200:
+    # 如果超过 2500 字符，按段落切块
+    if len(prompt) > 2500:
         paragraphs = prompt.split("\n\n")
         chunks = []
         current = ""
         for para in paragraphs:
-            if len(current) + len(para) < 800:
+            if len(current) + len(para) < 2000:
                 current += para + "\n\n"
             else:
                 if current:
@@ -117,7 +117,7 @@ def call_llm(prompt, timeout=600):
         if current:
             chunks.append(current.strip())
         if len(chunks) <= 1:
-            chunks = [prompt[:800]]
+            chunks = [prompt[:2000]]
 
         results = []
         for i, chunk in enumerate(chunks):
@@ -137,10 +137,10 @@ def call_llm(prompt, timeout=600):
                             {"role": "system", "content": sys_prompt},
                             {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
                         ],
-                        "max_tokens": 400,
+                        "max_tokens": 800,
                         "temperature": 0.1
                     },
-                    timeout=180
+                    timeout=timeout
                 )
                 if resp.status_code == 200:
                     part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")

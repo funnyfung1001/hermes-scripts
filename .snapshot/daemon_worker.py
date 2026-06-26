@@ -21,54 +21,68 @@ from config_shared import (
 
 logger = setup_logger("daemon_worker", "daemon_worker.log")
 
-# ── 本地32B（自动分段） ──
-def call_llm(prompt, timeout=600):
-    """调用本地32B模型，大内容自动分段"""
-    import requests
+# ── 本地32B（自动分段，2000字/段，有排队锁） ──
+_llm_lock = threading.Lock()
+_llm_queue_count = 0
 
-    if len(prompt) > 1200:
-        paragraphs = prompt.split("\n\n")
-        chunks = []
-        current = ""
-        for para in paragraphs:
-            if len(current) + len(para) < 800:
-                current += para + "\n\n"
-            else:
-                if current:
-                    chunks.append(current.strip())
-                current = para + "\n\n"
-        if current:
-            chunks.append(current.strip())
-        if len(chunks) <= 1:
-            chunks = [prompt[:800]]
-
-        results = []
-        for i, chunk in enumerate(chunks):
-            ctx = "分析第一部分。" if i == 0 else ("汇总前面分析，输出综合结论。" if i == len(chunks)-1 else "继续分析中间部分。")
-            try:
-                resp = requests.post(
-                    LOCAL_LLM_ENDPOINT,
-                    json={
-                        "messages": [
-                            {"role": "system", "content": f"你是C&I Nigeria业务分析师。{ctx}"},
-                            {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
-                        ],
-                        "max_tokens": 400,
-                        "temperature": 0.1
-                    },
-                    timeout=180
-                )
-                if resp.status_code == 200:
-                    part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                    if part:
-                        results.append(part)
-            except Exception:
-                pass
-        if results:
-            return "\n\n---\n".join(results)
-        return ""
-
+def call_llm(prompt, timeout=300):
+    """调用本地32B模型，大内容自动分段（2000字/块），排队等待"""
+    import requests, random
+    
+    # 排队等待（最多等 3 轮）
+    global _llm_queue_count
+    for _ in range(30):
+        with _llm_lock:
+            if _llm_queue_count < 2:  # 最多 2 个并发
+                _llm_queue_count += 1
+                break
+        time.sleep(2)
+    
     try:
+        # 分段逻辑：2000字/块，max_tokens=800
+        if len(prompt) > 2500:
+            paragraphs = prompt.split("\n\n")
+            chunks = []
+            current = ""
+            for para in paragraphs:
+                if len(current) + len(para) < 2000:
+                    current += para + "\n\n"
+                else:
+                    if current:
+                        chunks.append(current.strip())
+                    current = para + "\n\n"
+            if current:
+                chunks.append(current.strip())
+            if len(chunks) <= 1:
+                chunks = [prompt[:2000]]
+
+            results = []
+            for i, chunk in enumerate(chunks):
+                ctx = "分析第一部分。" if i == 0 else ("汇总前面分析，输出综合结论。" if i == len(chunks)-1 else "继续分析中间部分。")
+                try:
+                    resp = requests.post(
+                        LOCAL_LLM_ENDPOINT,
+                        json={
+                            "messages": [
+                                {"role": "system", "content": f"你是C&I Nigeria业务分析师。{ctx}"},
+                                {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
+                            ],
+                            "max_tokens": 800,
+                            "temperature": 0.1
+                        },
+                        timeout=timeout
+                    )
+                    if resp.status_code == 200:
+                        part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if part:
+                            results.append(part)
+                except Exception:
+                    pass
+            if results:
+                return "\n\n---\n".join(results)
+            return ""
+
+        # 短内容直接处理
         resp = requests.post(
             LOCAL_LLM_ENDPOINT,
             json={"messages": [{"role": "user", "content": prompt}],
@@ -79,6 +93,9 @@ def call_llm(prompt, timeout=600):
     except Exception as e:
         logger.error(f"LLM failed: {e}")
         return ""
+    finally:
+        with _llm_lock:
+            _llm_queue_count -= 1
 
 # ── 1. WhatsApp 全量采集 ──
 def collect_whatsapp():
