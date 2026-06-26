@@ -167,13 +167,26 @@ def call_llm(prompt, timeout=600):
 
 # -- 查找关联数据源 --
 def find_related_sources(date_str):
-    """从第二大脑中查找某日期关联的原始数据"""
+    """从第二大脑中查找某日期关联的原始数据（支持 v3 飞书目录结构）"""
     sources = {}
+    date_compact = date_str.replace("-", "")
     raw_dirs = ["feishu", "meetings", "email", "whatsapp", "intel"]
     for dir_name in raw_dirs:
         d = RAW_DIR / dir_name
         if not d.exists():
             continue
+        # v3 飞书新结构: feishu/YYYYMMDD/
+        if dir_name == "feishu":
+            date_dir = d / date_compact
+            if date_dir.exists():
+                for f in sorted(date_dir.glob("*.json"), reverse=True):
+                    try:
+                        content = f.read_text(encoding="utf-8", errors="replace")[:3000]
+                        if content.strip():
+                            sources[f.name] = content
+                    except Exception:
+                        continue
+        # 旧结构
         for f in sorted(d.glob(f"*{date_str}*"), reverse=True):
             try:
                 content = f.read_text(encoding="utf-8", errors="replace")[:3000]
