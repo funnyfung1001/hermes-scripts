@@ -456,21 +456,23 @@ approvals:
   mcp_reload_confirm: true
   destructive_slash_confirm: true
 command_allowlist:
-- git reset --hard (destroys uncommitted changes)
-- delete in root path
-- shell command via -c/-lc flag
-- script execution via -e/-c flag
-- kill hermes/gateway process (self-termination)
-- recursive delete
 - hermes update (restarts gateway, kills running agents)
-- force kill processes
-- overwrite system file via tee
-- stop/restart hermes gateway (kills running agents)
-- script execution via heredoc
-- disk copy
 - overwrite system file via redirection
-- execute_code
 - git force push short flag (rewrites remote history)
+- force kill processes
+- git reset --hard (destroys uncommitted changes)
+- script execution via heredoc
+- execute_code
+- disk copy
+- recursive delete
+- git force push (rewrites remote history)
+- stop/restart hermes gateway (kills running agents)
+- kill hermes/gateway process (self-termination)
+- kill process via pgrep expansion (self-termination)
+- shell command via -c/-lc flag
+- overwrite system file via tee
+- delete in root path
+- script execution via -e/-c flag
 quick_commands: {}
 platform_hints: {}
 hooks: {}
