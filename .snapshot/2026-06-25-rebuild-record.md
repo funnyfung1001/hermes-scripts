@@ -205,3 +205,28 @@ tar -czf /tmp/hermes-backup/YYYY-MM-DD/hermes_config.tar.gz -C ~ .hermes
 # 2. dd 写入 D 盘（不要 cp -a）
 dd if=/tmp/hermes-backup/.../hermes_config.tar.gz of=/mnt/d/hermes-backup/.../hermes_config.tar.gz bs=4M status=progress
 ```
+
+---
+
+## 2026-06-25 18:40 最终检查结果
+
+### 检查清单
+| 项目 | 状态 |
+|------|------|
+| Gateway | ✅ |
+| llama-server 32B | ✅ (去掉--mlock，内存不足时不会卡死) |
+| OpenViking | ✅ |
+| 32B 短推理 | ✅ |
+| 32B 分段(2500字) | ✅ |
+| 邮件采集 | ✅ 今日持续产出 |
+| 飞书群消息采集(v3) | ✅ 326条/8群(20260625) |
+| WhatsApp采集 | ✅ 117条(3群+87私聊)，Bridge Windows端 |
+| 互联网情报 | ✅ 今日已产出 |
+| Hermes Cron | ✅ 4个active |
+| batch_recovery | ⏳ 后台运行中(补历史) |
+
+### 已知问题
+1. llama-server --mlock 在系统运行一段时间后可能因内存碎片失败，已改为 --no-mmap 替代
+2. WhatsApp Bridge 需 Windows 端手动启动（计划任务 WhatsAppBridge 开机自启）
+3. 日报文档有日期空缺(06-10~06-16)，batch_recovery 正在补
+4. D盘备份使用 dd bs=4M 而非 cp -a，避免 9p I/O 卡死
