@@ -48,34 +48,30 @@ def _load_env():
             os.environ[k.strip()] = v.strip()
 
 def search_web(query, limit=3):
-    """使用 tavily 或 exa 搜索（优先 Tavily）"""
+    """使用 DuckDuckGo 搜索（duckduckgo_search 库，模拟浏览器行为）"""
     try:
-        # Tavily 搜索
-        import os
-        api_key = os.environ.get("TAVILY_API_KEY", "")
-        if api_key:
-            resp = requests.post(
-                "https://api.tavily.com/search",
-                json={"api_key": api_key, "query": query, "search_depth": "advanced", "max_results": limit},
-                timeout=30
-            )
-            if resp.status_code == 200:
-                return resp.json().get("results", [])
-        
-        # Fallback: DuckDuckGo 免费搜索
-        resp = requests.get(
-            f"https://api.duckduckgo.com/?q={query}&format=json",
-            timeout=15
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            results = []
-            for item in data.get("RelatedTopics", [])[:limit]:
-                if "Text" in item:
-                    results.append({"title": item.get("Text","")[:100], "content": item.get("Text",""), "url": item.get("FirstURL","")})
-            return results
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=limit))
+            if results:
+                logger.debug(f"DDGS: {len(results)} results")
+                return [{"title": r.get("title", ""), "content": r.get("body", ""), "url": r.get("href", "")} for r in results if r.get("title") or r.get("body")]
     except Exception as e:
-        logger.debug(f"Search failed for '{query}': {e}")
+        logger.debug(f"DDGS failed for '{query}': {e}")
+
+    # Fallback: 精简 query 再试
+    try:
+        from duckduckgo_search import DDGS
+        short_q = " ".join(query.split()[:5])
+        with DDGS() as ddgs:
+            results = list(ddgs.text(short_q, max_results=limit))
+            if results:
+                logger.debug(f"DDGS fallback: {len(results)} results")
+                return [{"title": r.get("title", ""), "content": r.get("body", ""), "url": r.get("href", "")} for r in results if r.get("title") or r.get("body")]
+    except Exception as e:
+        logger.debug(f"DDGS fallback failed: {e}")
+
+    logger.debug(f"No results for '{query}'")
     return []
 
 def fetch_page(url, timeout=15):
