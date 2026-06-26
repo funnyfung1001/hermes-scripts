@@ -151,7 +151,49 @@ def score_result(result):
 
 
 def search_web(query, limit=3):
-    """使用 DuckDuckGo 搜索，返回带评分的结构化结果"""
+    """使用 Tavily 搜索（优先），Fallback 到 DuckDuckGo"""
+    import os, sys, traceback
+    import requests
+    # 优先 Tavily
+    try:
+        # 直接从 .env 读 key（确保即使 _load_env 还没调用也能读到）
+        api_key = os.environ.get("TAVILY_API_KEY", "")
+        if not api_key:
+            env_path = Path.home() / ".hermes" / ".env"
+            for line in open(env_path):
+                line = line.strip()
+                if "TAVILY_API_KEY" in line:
+                    raw = line.split("=", 1)[1].strip()
+                    api_key = raw.strip("'").strip('"')
+                    os.environ["TAVILY_API_KEY"] = api_key
+                    break
+        if api_key:
+            resp = requests.post(
+                "https://api.tavily.com/search",
+                json={"api_key": api_key, "query": query, "search_depth": "advanced", "max_results": limit},
+                timeout=30
+            )
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                if results:
+                    scored = []
+                    for r in results:
+                        item = {"title": r.get("title", ""), "content": r.get("content", ""), "url": r.get("url", "")}
+                        s = score_result(item)
+                        item["score"] = s["score"]
+                        item["score_reasons"] = s["reasons"]
+                        item["domain"] = s["domain"]
+                        item["found_date"] = s["found_date"]
+                        scored.append(item)
+                    scored.sort(key=lambda x: x["score"], reverse=True)
+                    logger.debug(f"Tavily: {len(results)} results")
+                    return scored[:limit]
+    except Exception as e:
+        import traceback
+        print(f"[debug] Tavily exception: {e}\n{traceback.format_exc()}", file=sys.stderr)
+        logger.debug(f"Tavily failed: {e}")
+
+    # Fallback: DuckDuckGo
     try:
         from duckduckgo_search import DDGS as DDGSLib
         with DDGSLib() as ddgs:
