@@ -254,13 +254,55 @@ def fetch_page(url, timeout=15):
         logger.debug(f"Fetch failed {url}: {e}")
     return ""
 
+def _wait_llm_slot(timeout=600):
+    """等待 LLM 有空闲槽位（轮询 server 状态，最多等 timeout 秒）"""
+    import time
+    deadline = time.time() + timeout
+    # 先尝试发一个最简单的请求探测 server 是否响应
+    while time.time() < deadline:
+        try:
+            resp = requests.post(
+                LOCAL_LLM_ENDPOINT,
+                json={"messages": [{"role": "user", "content": "ping"}],
+                      "max_tokens": 1, "temperature": 0.1},
+                timeout=5
+            )
+            if resp.status_code == 200:
+                return True
+        except Exception:
+            pass
+        logger.debug("LLM busy, waiting 15s...")
+        time.sleep(15)
+    logger.error("LLM slot wait timeout")
+    return False
+
+
+def _call_llm_once(prompt, max_tokens=800, timeout=600):
+    """调用 LLM single shot，带有重试和槽位等待"""
+    try:
+        resp = requests.post(
+            LOCAL_LLM_ENDPOINT,
+            json={"messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.1, "max_tokens": max_tokens},
+            timeout=timeout
+        )
+        if resp.status_code == 200:
+            return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+        return ""
+    except requests.exceptions.ConnectionError:
+        return ""
+    except Exception:
+        return ""
+
+
 def analyze_with_llm(content, query, category):
-    """用32B分析搜索到的内容（大内容自动分段）"""
+    """用32B分析搜索到的内容（等待槽位、大内容自动分段、较长超时）"""
     results_text = content[:6000]
-    # 如果搜索结果带评分信息，格式化时加入
-    results_lines = results_text.split("\n")
-    scored_lines = []
-    has_scores = any("score" in r or "found_date" in r for r in globals().values()) if False else False
+
+    # 等待 LLM 有空闲槽位
+    if not _wait_llm_slot(timeout=900):
+        logger.error("LLM unavailable, skipping analysis")
+        return ""
 
     # 如果超过 1000 字符，分段处理
     if len(results_text) > 1000:
@@ -289,18 +331,11 @@ def analyze_with_llm(content, query, category):
 第{i+1}/{len(chunks)}部分：
 
 {chunk}"""
-            try:
-                resp = requests.post(
-                    LOCAL_LLM_ENDPOINT,
-                    json={"messages": [{"role": "user", "content": prompt}],
-                          "temperature": 0.1, "max_tokens": 800},
-                    timeout=180
-                )
-                part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if part:
-                    all_analyses.append(part)
-            except Exception as e:
-                logger.error(f"LLM chunk {i} failed: {e}")
+            part = _call_llm_once(prompt, max_tokens=800, timeout=600)
+            if part:
+                all_analyses.append(part)
+            else:
+                logger.error(f"LLM chunk {i} failed/skipped")
 
         if not all_analyses:
             return ""
@@ -328,18 +363,9 @@ def analyze_with_llm(content, query, category):
 ## ⚠️ 需要关注的风险
 
 ## 📊 建议后续动作"""
-            try:
-                resp = requests.post(
-                    LOCAL_LLM_ENDPOINT,
-                    json={"messages": [{"role": "user", "content": summary_prompt}],
-                          "temperature": 0.1, "max_tokens": 800},
-                    timeout=180
-                )
-                final = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if final:
-                    return final
-            except Exception:
-                pass
+            final = _call_llm_once(summary_prompt, max_tokens=800, timeout=600)
+            if final:
+                return final
         return combined
 
     # 短内容直接处理
@@ -379,17 +405,10 @@ def analyze_with_llm(content, query, category):
 - 具体可操作的建议
 
 输出语言：中文"""
-    try:
-        resp = requests.post(
-            LOCAL_LLM_ENDPOINT,
-            json={"messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.1, "max_tokens": 4096},
-            timeout=180
-        )
-        return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-    except Exception as e:
-        logger.error(f"LLM analysis failed: {e}")
-        return ""
+    result = _call_llm_once(prompt, max_tokens=4096, timeout=600)
+    if not result:
+        logger.error(f"LLM analysis failed/skipped")
+    return result
 
 def main():
     logger.info("=== Internet intel collection start ===")

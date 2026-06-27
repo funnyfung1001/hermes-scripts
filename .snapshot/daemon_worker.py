@@ -243,6 +243,11 @@ def collect_feishu_all():
         # 确保 HOME 环境变量存在（daemon/cron 环境可能缺失）
         if "HOME" not in os.environ:
             os.environ["HOME"] = str(Path.home())
+        # lark-cli 在检测到 Hermes 环境变量时使用 ~/.lark-cli/hermes/config.json
+        # 否则使用 ~/.lark-cli/config.json。纯 cron 环境没有 Hermes 变量，
+        # 所以给它注入 HERMES_EXEC_ASK 信号确保找到正确的配置文件
+        if not any(k.startswith("HERMES_") for k in os.environ):
+            os.environ["HERMES_EXEC_ASK"] = "1"
         import feishu_all_collector as fac
         fac.main()
         logger.info("Feishu: all collected")

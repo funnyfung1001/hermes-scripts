@@ -51,6 +51,10 @@ def _run_lark(method, path, params=None, data=None, timeout=60):
         env = os.environ.copy()
         if "HOME" not in env or not env["HOME"]:
             env["HOME"] = str(Path.home())
+        # 确保 lark-cli 能找到配置文件：
+        #   - 有 HERMES_ 环境变量时 → 读 ~/.lark-cli/hermes/config.json（已存在）
+        #   - 无 HERMES_ 环境变量时 → 读 ~/.lark-cli/config.json（已创建）
+        # 两种路径现都有配置，无需额外处理
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         if r.returncode != 0:
             logger.warning(f"lark-cli error: {r.stderr[:200]}")
