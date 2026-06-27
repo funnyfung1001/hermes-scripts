@@ -155,37 +155,75 @@ def collect_whatsapp():
                 pass
 
         total_new = 0
-        # 全量采集每个群的消息
-        for g in groups[:10]:  # 最多10个群
+        # 全量采集每个群的消息（支持翻页，最多3页=150条）
+        for g in groups[:10]:
             gid = g.get("id", "")
             gname = g.get("name", "unknown")
             try:
-                r2 = requests.get(f"{bridge}/api/groups/{gid}/messages?limit=50", headers=headers, timeout=30)
-                if r2.status_code == 200:
+                all_msgs = []
+                after = ""
+                for page in range(3):
+                    url = f"{bridge}/api/groups/{gid}/messages?limit=50"
+                    if after:
+                        url += f"&after={after}"
+                    r2 = requests.get(url, headers=headers, timeout=30)
+                    if r2.status_code != 200:
+                        break
                     msgs = r2.json().get("messages", r2.json())
                     if isinstance(msgs, list) and msgs:
-                        # 去重：只保留未见过的新消息
-                        new_msgs = [m for m in msgs if m.get("id", m.get("message_id", "")) not in existing_ids]
-                        if new_msgs:
-                            import json
-                            out = wd / f"wa_group_{gname}_{ts}.json"
-                            out.write_text(json.dumps(new_msgs, ensure_ascii=False, indent=2))
-                            logger.info(f"WA {gname}: {len(new_msgs)} new (of {len(msgs)})")
-                            total_new += len(new_msgs)
+                        all_msgs.extend(msgs)
+                        after = msgs[-1].get("id", "")
+                    else:
+                        break
+                if all_msgs:
+                    new_msgs = [m for m in all_msgs if m.get("id", "") not in existing_ids]
+                    if new_msgs:
+                        out = wd / f"wa_group_{gname}_{ts}.json"
+                        out.write_text(json.dumps(new_msgs, ensure_ascii=False, indent=2))
+                        logger.info(f"WA {gname}: {len(new_msgs)} new (of {len(all_msgs)})")
+                        total_new += len(new_msgs)
             except Exception as e:
                 logger.debug(f"WA group {gname}: {e}")
-        
-        # 私聊消息
+
+        # 私聊消息：先拿聊天列表，再逐个采消息内容
         try:
-            r3 = requests.get(f"{bridge}/api/chats?type=private&limit=50", headers=headers, timeout=30)
+            r3 = requests.get(f"{bridge}/api/chats?type=private&limit=20", headers=headers, timeout=30)
             if r3.status_code == 200:
-                pmsgs = r3.json().get("messages", r3.json())
-                if isinstance(pmsgs, list) and pmsgs:
-                    out = wd / f"wa_private_{ts}.json"
-                    out.write_text(json.dumps(pmsgs, ensure_ascii=False, indent=2))
-                    logger.info(f"WA private: {len(pmsgs)} msgs")
+                chats = r3.json().get("chats", r3.json().get("messages", r3.json()))
+                if isinstance(chats, list):
+                    for chat in chats[:10]:  # 最多前10个聊天
+                        chat_id = chat.get("id", "")
+                        if not chat_id:
+                            continue
+                        try:
+                            after = ""
+                            chat_msgs = []
+                            for page in range(3):
+                                url = f"{bridge}/api/chats/{chat_id}/messages?limit=50"
+                                if after:
+                                    url += f"&after={after}"
+                                r4 = requests.get(url, headers=headers, timeout=30)
+                                if r4.status_code != 200:
+                                    break
+                                msgs = r4.json().get("messages", r4.json())
+                                if isinstance(msgs, list) and msgs:
+                                    chat_msgs.extend(msgs)
+                                    after = msgs[-1].get("id", "")
+                                else:
+                                    break
+                            if chat_msgs:
+                                new_pmsgs = [m for m in chat_msgs if m.get("id", "") not in existing_ids]
+                                if new_pmsgs:
+                                    cname = chat.get("name", chat_id)[:20]
+                                    out = wd / f"wa_private_{cname}_{ts}.json"
+                                    out.write_text(json.dumps(new_pmsgs, ensure_ascii=False, indent=2))
+                                    logger.info(f"WA private {cname}: {len(new_pmsgs)} new")
+                                    total_new += len(new_pmsgs)
+                        except Exception as e:
+                            logger.debug(f"WA private chat {chat_id}: {e}")
         except Exception as e:
-            logger.debug(f"WA private: {e}")
+            logger.debug(f"WA private list: {e}")
+        logger.info(f"WA total new: {total_new}")
     except Exception as e:
         logger.debug(f"WhatsApp collect: {e}")
 
