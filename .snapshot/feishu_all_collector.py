@@ -73,21 +73,33 @@ def collect_chat_list(page_size=50):
     return []
 
 
-def collect_group_messages(chat_id, page_size=50):
-    """采集指定群/私聊的消息"""
-    params = {"container_id_type": "chat", "container_id": chat_id, "page_size": page_size}
-    result = _run_lark("GET", "im/v1/messages", params)
-    if isinstance(result, dict) and result.get("ok"):
-        items = result.get("data", {}).get("items", [])
-        # 去重
-        new_items = []
-        for item in items:
-            mid = item.get("message_id", "")
-            if mid and mid not in _seen_message_ids:
-                _seen_message_ids.add(mid)
-                new_items.append(item)
-        return new_items
-    return []
+def collect_group_messages(chat_id, page_size=50, max_pages=5):
+    """采集指定群/私聊的消息（支持翻页，最多5页=250条）"""
+    all_items = []
+    page_token = ""
+    for _ in range(max_pages):
+        params = {"container_id_type": "chat", "container_id": chat_id, "page_size": page_size}
+        if page_token:
+            params["page_token"] = page_token
+        result = _run_lark("GET", "im/v1/messages", params)
+        if isinstance(result, dict) and result.get("ok"):
+            items = result.get("data", {}).get("items", [])
+            all_items.extend(items)
+            if result.get("data", {}).get("has_more"):
+                page_token = result.get("data", {}).get("page_token", "")
+            else:
+                break
+        else:
+            break
+
+    # 去重
+    new_items = []
+    for item in all_items:
+        mid = item.get("message_id", "")
+        if mid and mid not in _seen_message_ids:
+            _seen_message_ids.add(mid)
+            new_items.append(item)
+    return new_items
 
 
 def save_messages(chat_id, messages, date_str=None):
