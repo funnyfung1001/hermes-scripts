@@ -362,8 +362,34 @@ def _idle_knowledge_link():
     return False
 
 def _idle_deep_read():
-    """深度阅读一个raw文件"""
-    files = _get_raw_files(3)
+    """深度阅读一个raw文件（不限时间，优先未分析过的）"""
+    # 先找 digest 目录中已有的分析记录
+    digest_dir = RAW_DIR / "digest"
+    analyzed = set()
+    if digest_dir.exists():
+        for f in digest_dir.glob("*_analysis.md"):
+            analyzed.add(f.stem)
+
+    # 找所有原始文件（不限天数），跳过已被分析过的
+    files = []
+    for subdir in ["feishu", "whatsapp", "email", "meetings"]:
+        d = RAW_DIR / subdir
+        if not d.exists():
+            continue
+        # v3 飞书目录
+        if subdir == "feishu":
+            for date_dir in sorted(d.iterdir(), reverse=True):
+                if date_dir.is_dir() and date_dir.name.isdigit():
+                    for f in date_dir.glob("*.json"):
+                        if f.stem not in analyzed:
+                            files.append(f)
+        # 旧结构
+        for f in sorted(d.iterdir(), reverse=True):
+            if f.is_file() and f.stem not in analyzed:
+                files.append(f)
+
+    if not files:
+        files = _get_raw_files(30)  # 全部分析过了就随机读旧的
     if not files:
         return False
     f = files[0]
@@ -466,9 +492,9 @@ def main():
     except Exception as e:
         logger.debug(f"OpenViking ingest: {e}")
 
-    # 7. 空闲深度学习（概率触发，约每2小时一次）
+    # 7. 空闲深度学习（高概率触发，充分利用32B算力）
     import random
-    if not worked or random.random() < 0.15:
+    if not worked or random.random() < 0.6:
         idle_work()
     
     logger.info("=== Daemon worker tick done ===")
