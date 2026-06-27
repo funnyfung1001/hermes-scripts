@@ -170,7 +170,7 @@ def search_web(query, limit=3):
         if api_key:
             resp = requests.post(
                 "https://api.tavily.com/search",
-                json={"api_key": api_key, "query": query, "search_depth": "advanced", "max_results": limit},
+                json={"api_key": api_key, "query": query, "search_depth": "basic", "max_results": limit},
                 timeout=30
             )
             if resp.status_code == 200:
@@ -178,7 +178,12 @@ def search_web(query, limit=3):
                 if results:
                     scored = []
                     for r in results:
-                        item = {"title": r.get("title", ""), "content": r.get("content", ""), "url": r.get("url", "")}
+                        # 裁剪 content：只保留前 500 字符，去除重复模板文字
+                        raw = r.get("content", "")
+                        # 去掉常见的导航/页脚文字
+                        import re
+                        clean = re.sub(r'(Register|Login|Sign up|Subscribe|Menu|Navigation|Cookie|Privacy|Terms).*', '', raw[:2000], flags=re.IGNORECASE)[:800]
+                        item = {"title": r.get("title", ""), "content": clean, "url": r.get("url", "")}
                         s = score_result(item)
                         item["score"] = s["score"]
                         item["score_reasons"] = s["reasons"]
@@ -257,13 +262,13 @@ def analyze_with_llm(content, query, category):
     scored_lines = []
     has_scores = any("score" in r or "found_date" in r for r in globals().values()) if False else False
 
-    # 如果超过 2000 字符，分段处理
-    if len(results_text) > 2000:
+    # 如果超过 1500 字符，分段处理
+    if len(results_text) > 1500:
         paragraphs = results_text.split("\n")
         chunks = []
         current = ""
         for para in paragraphs:
-            if len(current) + len(para) < 1500:
+            if len(current) + len(para) < 800:
                 current += para + "\n"
             else:
                 if current:
@@ -272,7 +277,7 @@ def analyze_with_llm(content, query, category):
         if current:
             chunks.append(current.strip())
         if len(chunks) <= 1:
-            chunks = [results_text[:1500]]
+            chunks = [results_text[:800]]
 
         all_analyses = []
         for i, chunk in enumerate(chunks):
@@ -289,7 +294,7 @@ def analyze_with_llm(content, query, category):
                     LOCAL_LLM_ENDPOINT,
                     json={"messages": [{"role": "user", "content": prompt}],
                           "temperature": 0.1, "max_tokens": 800},
-                    timeout=300
+                    timeout=180
                 )
                 part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if part:
@@ -328,7 +333,7 @@ def analyze_with_llm(content, query, category):
                     LOCAL_LLM_ENDPOINT,
                     json={"messages": [{"role": "user", "content": summary_prompt}],
                           "temperature": 0.1, "max_tokens": 800},
-                    timeout=300
+                    timeout=180
                 )
                 final = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if final:
@@ -379,7 +384,7 @@ def analyze_with_llm(content, query, category):
             LOCAL_LLM_ENDPOINT,
             json={"messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.1, "max_tokens": 4096},
-            timeout=300
+            timeout=180
         )
         return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception as e:
