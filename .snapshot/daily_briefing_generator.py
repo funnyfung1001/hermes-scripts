@@ -301,24 +301,10 @@ def update_briefing_doc(content):
     return True
 
 def send_feishu_message(recipient_id, text, recipient_type="open_id"):
-    """发送飞书消息"""
-    import subprocess, json
-    from pathlib import Path
-    _LARK_CLI = str(Path.home() / ".npm-global/bin/lark-cli")
-    result = subprocess.run(
-        [_LARK_CLI, "api", "POST",
-         f"im/v1/messages?receive_id_type={recipient_type}",
-         "--data", json.dumps({"receive_id": recipient_id, "msg_type": "text",
-                              "content": json.dumps({"text": text})}),
-         "--as", "user"],
-        capture_output=True, text=True, timeout=30
-    )
-    if result.returncode == 0:
-        try:
-            return json.loads(result.stdout).get("ok", False)
-        except Exception:
-            pass
-    return False
+    """发送飞书消息（走三狗 Bot HTTP API，不走 lark-cli CLI——避免 99992402 bug）"""
+    sys.path.insert(0, str(Path(__file__).parent))
+    from feishu_card_sender import send_text
+    return send_text(recipient_id=recipient_id, text=text, recipient_type=recipient_type)
 
 def summarize_cn_briefing(content):
     """从完整简报提取中文摘要"""

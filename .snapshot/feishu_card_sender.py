@@ -109,3 +109,43 @@ def send_card(recipient_id, title, body, recipient_type="chat_id"):
     except Exception as e:
         print(f"[feishu_card_sender] ERROR: {e}")
         return False
+
+
+def send_text(recipient_id, text, recipient_type="chat_id"):
+    """发送纯文本消息（三狗 Bot 身份，HTTP API 直连）
+
+    Args:
+        recipient_id: 接收者 ID
+        text: 文本内容
+        recipient_type: chat_id（群聊）或 open_id/union_id（私聊）
+    """
+    token = _get_tenant_token()
+    if not token:
+        return False
+
+    content = json.dumps({"text": text})
+
+    try:
+        resp = requests.post(
+            f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={recipient_type}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "receive_id": recipient_id,
+                "msg_type": "text",
+                "content": content
+            },
+            timeout=15
+        )
+        result = resp.json()
+        ok = result.get("code") == 0
+        if ok:
+            print(f"[feishu_card_sender] text OK → {recipient_id[:20]}: {text[:40]}...")
+        else:
+            print(f"[feishu_card_sender] text FAIL → {recipient_id[:20]}: {result.get('msg','')}")
+        return ok
+    except Exception as e:
+        print(f"[feishu_card_sender] text ERROR: {e}")
+        return False
