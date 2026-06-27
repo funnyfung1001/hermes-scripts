@@ -126,6 +126,7 @@ def collect_whatsapp():
                 break
 
     headers = {}
+    import os, json
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
@@ -139,7 +140,21 @@ def collect_whatsapp():
         wd = RAW_DIR / "whatsapp"
         wd.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M")
-        
+
+        # 加载已存消息ID（去重用）
+        existing_ids = set()
+        for f in wd.glob("*.json"):
+            try:
+                msgs = json.loads(f.read_text())
+                if isinstance(msgs, list):
+                    for m in msgs:
+                        mid = m.get("id", m.get("message_id", ""))
+                        if mid:
+                            existing_ids.add(mid)
+            except:
+                pass
+
+        total_new = 0
         # 全量采集每个群的消息
         for g in groups[:10]:  # 最多10个群
             gid = g.get("id", "")
@@ -149,10 +164,14 @@ def collect_whatsapp():
                 if r2.status_code == 200:
                     msgs = r2.json().get("messages", r2.json())
                     if isinstance(msgs, list) and msgs:
-                        import json
-                        out = wd / f"wa_group_{gname}_{ts}.json"
-                        out.write_text(json.dumps(msgs, ensure_ascii=False, indent=2))
-                        logger.info(f"WA group {gname}: {len(msgs)} msgs")
+                        # 去重：只保留未见过的新消息
+                        new_msgs = [m for m in msgs if m.get("id", m.get("message_id", "")) not in existing_ids]
+                        if new_msgs:
+                            import json
+                            out = wd / f"wa_group_{gname}_{ts}.json"
+                            out.write_text(json.dumps(new_msgs, ensure_ascii=False, indent=2))
+                            logger.info(f"WA {gname}: {len(new_msgs)} new (of {len(msgs)})")
+                            total_new += len(new_msgs)
             except Exception as e:
                 logger.debug(f"WA group {gname}: {e}")
         
