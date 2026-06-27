@@ -255,23 +255,28 @@ def fetch_page(url, timeout=15):
     return ""
 
 def _wait_llm_slot(timeout=600):
-    """等待 LLM 有空闲槽位（轮询 server 状态，最多等 timeout 秒）"""
-    import time
+    """等待 LLM 有空闲槽位（轻量级 HTTP 探测，最多等 timeout 秒）
+
+    不再发送真实的推理请求（CPU 32B 处理推理探针也要 2-5 分钟）。
+    改用连接检查和简单的 server 可达性探测。
+    """
+    import time, socket
     deadline = time.time() + timeout
-    # 先尝试发一个最简单的请求探测 server 是否响应
+    from urllib.parse import urlparse
+    parsed = urlparse(LOCAL_LLM_ENDPOINT)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 8080
+
     while time.time() < deadline:
         try:
-            resp = requests.post(
-                LOCAL_LLM_ENDPOINT,
-                json={"messages": [{"role": "user", "content": "ping"}],
-                      "max_tokens": 1, "temperature": 0.1},
-                timeout=5
-            )
-            if resp.status_code == 200:
-                return True
-        except Exception:
+            # 轻量级 socket 连接检查而非推理请求
+            sock = socket.create_connection((host, port), timeout=3)
+            sock.close()
+            # server 已启动，直接返回成功
+            return True
+        except (socket.timeout, ConnectionRefusedError, OSError):
             pass
-        logger.debug("LLM busy, waiting 15s...")
+        logger.debug("LLM not reachable, waiting 15s...")
         time.sleep(15)
     logger.error("LLM slot wait timeout")
     return False
@@ -410,66 +415,106 @@ def analyze_with_llm(content, query, category):
         logger.error(f"LLM analysis failed/skipped")
     return result
 
+# ── 进程锁（防止 cron 实例重叠） ──
+_LOCK_FILE = Path.home() / ".hermes" / ".internet_intel.lock"
+
+def _acquire_lock():
+    """尝试获取进程锁，成功返回 True，已有实例返回 False"""
+    import os, fcntl
+    _LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lock_fd = os.open(str(_LOCK_FILE), os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # 写入当前 PID
+        os.ftruncate(lock_fd, 0)
+        os.write(lock_fd, f"{os.getpid()}".encode())
+        return lock_fd
+    except (IOError, OSError):
+        return None
+
+def _release_lock(lock_fd):
+    """释放进程锁"""
+    import os
+    if lock_fd is not None:
+        try:
+            os.close(lock_fd)
+        except Exception:
+            pass
+        try:
+            _LOCK_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def main():
+    # 获取进程锁，防止多个实例重叠
+    lock_fd = _acquire_lock()
+    if lock_fd is None:
+        logger.warning("Another internet_intel instance is already running, skipping this tick")
+        return 0
+
     logger.info("=== Internet intel collection start ===")
     _load_env()  # 确保 .env 已加载
     
-    intel_dir = RAW_DIR / "intel"
-    intel_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
-    
-    all_reports = []
-    total_searched = 0
-    
-    for query, category in SEARCH_QUERIES:
-        logger.info(f"Searching: [{category}] {query}")
+    try:
+        intel_dir = RAW_DIR / "intel"
+        intel_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M")
         
-        # 1. 搜索
-        results = search_web(query)
-        if not results:
-            logger.debug(f"  No results for: {query}")
-            continue
+        all_reports = []
+        total_searched = 0
         
-        total_searched += 1
-        logger.info(f"  Got {len(results)} results")
+        for query, category in SEARCH_QUERIES:
+            logger.info(f"Searching: [{category}] {query}")
+            
+            # 1. 搜索
+            results = search_web(query)
+            if not results:
+                logger.debug(f"  No results for: {query}")
+                continue
+            
+            total_searched += 1
+            logger.info(f"  Got {len(results)} results")
+            
+            # 2. 提取内容
+            content_parts = []
+            for r in results[:3]:
+                title = r.get("title", "")
+                snippet = r.get("content", "") or r.get("snippet", "")
+                url = r.get("url", "")
+                content_parts.append(f"## {title}\n{snippet}\n来源: {url}\n")
+            
+            combined = "\n".join(content_parts)
+            
+            # 3. 32B分析
+            analysis = analyze_with_llm(combined, query, category)
+            if not analysis:
+                continue
+            
+            # 4. 保存
+            all_reports.append(f"---\n## [{category}] {query}\n\n{analysis}\n")
+            
+            # 每条搜索保存单独文件
+            out = intel_dir / f"intel_{category}_{ts}.md"
+            with open(out, "a", encoding="utf-8") as f:
+                f.write(f"\n\n## {query}\n{analysis}\n")
+            
+            logger.info(f"  ✅ {query}")
         
-        # 2. 提取内容
-        content_parts = []
-        for r in results[:3]:
-            title = r.get("title", "")
-            snippet = r.get("content", "") or r.get("snippet", "")
-            url = r.get("url", "")
-            content_parts.append(f"## {title}\n{snippet}\n来源: {url}\n")
+        # 5. 综合报告
+        if all_reports:
+            report = f"# 互联网情报采集 — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n" + \
+                     f"采集: {total_searched}/{len(SEARCH_QUERIES)} 条搜索有结果\n" + \
+                     "".join(all_reports)
+            
+            summary_path = intel_dir / f"intel_summary_{ts}.md"
+            summary_path.write_text(report)
+            logger.info(f"Summary: {summary_path.name} ({len(report)} chars)")
         
-        combined = "\n".join(content_parts)
-        
-        # 3. 32B分析
-        analysis = analyze_with_llm(combined, query, category)
-        if not analysis:
-            continue
-        
-        # 4. 保存
-        all_reports.append(f"---\n## [{category}] {query}\n\n{analysis}\n")
-        
-        # 每条搜索保存单独文件
-        out = intel_dir / f"intel_{category}_{ts}.md"
-        with open(out, "a", encoding="utf-8") as f:
-            f.write(f"\n\n## {query}\n{analysis}\n")
-        
-        logger.info(f"  ✅ {query}")
-    
-    # 5. 综合报告
-    if all_reports:
-        report = f"# 互联网情报采集 — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n" + \
-                 f"采集: {total_searched}/{len(SEARCH_QUERIES)} 条搜索有结果\n" + \
-                 "".join(all_reports)
-        
-        summary_path = intel_dir / f"intel_summary_{ts}.md"
-        summary_path.write_text(report)
-        logger.info(f"Summary: {summary_path.name} ({len(report)} chars)")
-    
-    logger.info(f"=== Internet intel done: {total_searched} searches processed ===")
-    return 0
+        logger.info(f"=== Internet intel done: {total_searched} searches processed ===")
+        return total_searched
+    finally:
+        _release_lock(lock_fd)
 
 if __name__ == "__main__":
     sys.exit(main())
