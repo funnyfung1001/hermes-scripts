@@ -100,6 +100,7 @@ def call_llm(prompt, timeout=300):
 # ── 1. WhatsApp 全量采集 ──
 def collect_whatsapp():
     """采集 WhatsApp 消息"""
+    import os, json
     # 从 .env 加载 Bridge 配置
     env_path = Path.home() / ".hermes" / ".env"
     if env_path.exists():
@@ -126,7 +127,6 @@ def collect_whatsapp():
                 break
 
     headers = {}
-    import os, json
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
