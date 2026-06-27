@@ -163,9 +163,9 @@ def collect_whatsapp():
                 all_msgs = []
                 after = ""
                 for page in range(3):
-                    url = f"{bridge}/api/groups/{gid}/messages?limit=50"
+                    url = f"{bridge}/api/groups/{requests.utils.quote(gid, safe='')}/messages?limit=50"
                     if after:
-                        url += f"&after={after}"
+                        url += f"&after={requests.utils.quote(after, safe='')}"
                     r2 = requests.get(url, headers=headers, timeout=30)
                     if r2.status_code != 200:
                         break
@@ -199,9 +199,9 @@ def collect_whatsapp():
                             after = ""
                             chat_msgs = []
                             for page in range(3):
-                                url = f"{bridge}/api/chats/{chat_id}/messages?limit=50"
+                                url = f"{bridge}/api/chats/{requests.utils.quote(chat_id, safe='')}/messages?limit=50"
                                 if after:
-                                    url += f"&after={after}"
+                                    url += f"&after={requests.utils.quote(after, safe='')}"
                                 r4 = requests.get(url, headers=headers, timeout=30)
                                 if r4.status_code != 200:
                                     break
