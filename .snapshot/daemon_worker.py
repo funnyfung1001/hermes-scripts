@@ -182,7 +182,8 @@ def collect_whatsapp():
                 if all_msgs:
                     new_msgs = [m for m in all_msgs if m.get("id", "") not in existing_ids]
                     if new_msgs:
-                        out = wd / f"wa_group_{gname}_{ts}.json"
+                        safe_name = gname.replace("/", "_").replace("&", "_").replace(" ", "_")[:30]
+                        out = wd / f"wa_group_{safe_name}_{ts}.json"
                         out.write_text(json.dumps(new_msgs, ensure_ascii=False, indent=2))
                         logger.info(f"WA {gname}: {len(new_msgs)} new (of {len(all_msgs)})")
                         total_new += len(new_msgs)
@@ -223,7 +224,8 @@ def collect_whatsapp():
                                 new_pmsgs = [m for m in chat_msgs if m.get("id", "") not in existing_ids]
                                 if new_pmsgs:
                                     cname = chat.get("name", chat_id)[:20]
-                                    out = wd / f"wa_private_{cname}_{ts}.json"
+                                    safe_cname = cname.replace("/", "_").replace("&", "_").replace(" ", "_")[:20]
+                                    out = wd / f"wa_private_{safe_cname}_{ts}.json"
                                     out.write_text(json.dumps(new_pmsgs, ensure_ascii=False, indent=2))
                                     logger.info(f"WA private {cname}: {len(new_pmsgs)} new")
                                     total_new += len(new_pmsgs)
