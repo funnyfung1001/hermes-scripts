@@ -49,7 +49,8 @@ def _run_lark(method, path, params=None, data=None, timeout=60):
         cmd.extend(["--data", json.dumps(data)])
     try:
         env = os.environ.copy()
-        env["HOME"] = str(Path.home())
+        if "HOME" not in env or not env["HOME"]:
+            env["HOME"] = str(Path.home())
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         if r.returncode != 0:
             logger.warning(f"lark-cli error: {r.stderr[:200]}")

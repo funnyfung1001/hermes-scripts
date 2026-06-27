@@ -262,13 +262,13 @@ def analyze_with_llm(content, query, category):
     scored_lines = []
     has_scores = any("score" in r or "found_date" in r for r in globals().values()) if False else False
 
-    # 如果超过 1500 字符，分段处理
-    if len(results_text) > 1500:
+    # 如果超过 1000 字符，分段处理
+    if len(results_text) > 1000:
         paragraphs = results_text.split("\n")
         chunks = []
         current = ""
         for para in paragraphs:
-            if len(current) + len(para) < 800:
+            if len(current) + len(para) < 600:
                 current += para + "\n"
             else:
                 if current:
@@ -277,7 +277,7 @@ def analyze_with_llm(content, query, category):
         if current:
             chunks.append(current.strip())
         if len(chunks) <= 1:
-            chunks = [results_text[:800]]
+            chunks = [results_text[:600]]
 
         all_analyses = []
         for i, chunk in enumerate(chunks):
