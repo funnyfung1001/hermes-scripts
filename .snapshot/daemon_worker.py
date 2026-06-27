@@ -169,7 +169,11 @@ def collect_whatsapp():
                     r2 = requests.get(url, headers=headers, timeout=30)
                     if r2.status_code != 200:
                         break
-                    msgs = r2.json().get("messages", r2.json())
+                    data = r2.json()
+                    if isinstance(data, list):
+                        msgs = data
+                    else:
+                        msgs = data.get("messages", data)
                     if isinstance(msgs, list) and msgs:
                         all_msgs.extend(msgs)
                         after = msgs[-1].get("id", "")
@@ -205,7 +209,11 @@ def collect_whatsapp():
                                 r4 = requests.get(url, headers=headers, timeout=30)
                                 if r4.status_code != 200:
                                     break
-                                msgs = r4.json().get("messages", r4.json())
+                                data = r4.json()
+                                if isinstance(data, list):
+                                    msgs = data
+                                else:
+                                    msgs = data.get("messages", data)
                                 if isinstance(msgs, list) and msgs:
                                     chat_msgs.extend(msgs)
                                     after = msgs[-1].get("id", "")
