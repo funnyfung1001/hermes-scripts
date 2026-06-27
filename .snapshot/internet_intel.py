@@ -257,8 +257,8 @@ def analyze_with_llm(content, query, category):
     scored_lines = []
     has_scores = any("score" in r or "found_date" in r for r in globals().values()) if False else False
 
-    # 如果超过 2500 字符，分段处理
-    if len(results_text) > 2500:
+    # 如果超过 2000 字符，分段处理
+    if len(results_text) > 2000:
         paragraphs = results_text.split("\n")
         chunks = []
         current = ""
@@ -276,21 +276,20 @@ def analyze_with_llm(content, query, category):
 
         all_analyses = []
         for i, chunk in enumerate(chunks):
-            prompt = f"""你是C&I Nigeria储能业务的市场情报分析师。
+            ctx = "分析以下第一部分搜索结果。" if i == 0 else "继续分析剩余部分。" if i < len(chunks)-1 else "这是最后部分。汇总前面分析，输出综合报告。"
+            prompt = f"""你是C&I Nigeria储能业务的市场情报分析师。{ctx}
 
 搜索词: {query}
 分类: {category}
-这是分析的第{i+1}/{len(chunks)}部分搜索结果：
+第{i+1}/{len(chunks)}部分：
 
-{chunk}
-
-请分析这部分内容的核心信息。"""
+{chunk}"""
             try:
                 resp = requests.post(
                     LOCAL_LLM_ENDPOINT,
                     json={"messages": [{"role": "user", "content": prompt}],
                           "temperature": 0.1, "max_tokens": 800},
-                    timeout=600
+                    timeout=300
                 )
                 part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if part:
@@ -329,7 +328,7 @@ def analyze_with_llm(content, query, category):
                     LOCAL_LLM_ENDPOINT,
                     json={"messages": [{"role": "user", "content": summary_prompt}],
                           "temperature": 0.1, "max_tokens": 800},
-                    timeout=600
+                    timeout=300
                 )
                 final = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if final:
@@ -380,7 +379,7 @@ def analyze_with_llm(content, query, category):
             LOCAL_LLM_ENDPOINT,
             json={"messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.1, "max_tokens": 4096},
-            timeout=600
+            timeout=300
         )
         return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception as e:
