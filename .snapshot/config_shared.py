@@ -36,7 +36,7 @@ LOGS = HERMES / "logs"
 
 # ── API ──
 DEEPSEEK_API = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_MODEL = "deepseek-chat"
+DEEPSEEK_MODEL = "deepseek-v4"
 LOCAL_LLM_ENDPOINT = "http://localhost:8080/v1/chat/completions"
 LOCAL_LLM_MODEL = "qwen2.5-32b-instruct-q4_K_M"
 
