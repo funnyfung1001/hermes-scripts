@@ -466,6 +466,7 @@ command_allowlist:
 - disk copy
 - recursive delete
 - git force push (rewrites remote history)
+- in-place edit of Hermes config/env
 - stop/restart hermes gateway (kills running agents)
 - kill hermes/gateway process (self-termination)
 - kill process via pgrep expansion (self-termination)
