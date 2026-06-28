@@ -4,7 +4,7 @@
 由 cron_runner.sh digest 调度（每2小时6-23点）。
 对每一条原始数据都用32B做深度分析，超时降级到 DeepSeek。
 """
-import sys, json, requests
+import sys, json, requests, time, os
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -107,7 +107,13 @@ def deep_digest_all():
         done_file = RAW_DIR / "digest" / f"{dir_name}_digest_done.txt"
         done_set = set()
         if done_file.exists():
-            done_set = set(done_file.read_text().splitlines())
+            # 去重读取（清除已有文件中因追加写入产生的重复行）
+            raw_lines = done_file.read_text().splitlines()
+            done_set = set(raw_lines)
+            if len(raw_lines) != len(done_set):
+                # 有重复行，写回去重版本
+                done_file.write_text("\n".join(sorted(done_set)) + "\n")
+                logger.info(f"Deduplicated {done_file.name}: {len(raw_lines)}→{len(done_set)} lines")
 
         for f in sorted(d.iterdir(), reverse=True):
             if not f.is_file():
@@ -177,14 +183,34 @@ def deep_digest_all():
 
                 # 标记已处理
                 with open(done_file, "a") as df:
-                    df.write(f"{f}\n")
+                    fpath = str(f)
+                    if fpath not in done_set:
+                        df.write(f"{fpath}\n")
+                        done_set.add(fpath)
 
     return total
 
 def main():
     logger.info("Deep digest start")
-    n = deep_digest_all()
-    logger.info(f"Deep digest done: {n} files processed")
+    # 检查 digest lock，避免与 daemon_worker 的 deep_digest 重叠
+    lock_file = RAW_DIR / "digest" / ".digest.lock"
+    if lock_file.exists():
+        try:
+            age = time.time() - lock_file.stat().st_mtime
+            if age < 900:  # 15分钟内创建的锁认为有效
+                logger.info("Digest lock active (from daemon_worker or previous run), skipping")
+                return 0
+        except OSError:
+            pass
+    # 创建临时锁
+    lock_file.write_text(str(os.getpid()))
+    try:
+        n = deep_digest_all()
+        logger.info(f"Deep digest done: {n} files processed")
+    finally:
+        # 只删除自己创建的锁
+        if lock_file.exists() and lock_file.read_text().strip() == str(os.getpid()):
+            lock_file.unlink()
     return 0
 
 if __name__ == "__main__":

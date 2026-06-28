@@ -183,18 +183,22 @@ def collect_whatsapp():
                     new_msgs = [m for m in all_msgs if m.get("id", "") not in existing_ids]
                     if new_msgs:
                         safe_name = gname.replace("/", "_").replace("&", "_").replace(" ", "_")[:30]
+                        if not safe_name:
+                            safe_name = gid.split("@")[0][:30]
                         out = wd / f"wa_group_{safe_name}_{ts}.json"
                         out.write_text(json.dumps(new_msgs, ensure_ascii=False, indent=2))
-                        logger.info(f"WA {gname}: {len(new_msgs)} new (of {len(all_msgs)})")
+                        logger.info(f"WA {gname or gid}: {len(new_msgs)} new (of {len(all_msgs)})")
                         total_new += len(new_msgs)
             except Exception as e:
-                logger.debug(f"WA group {gname}: {e}")
+                logger.warning(f"WA group {gname or gid}: {e}")
 
         # 私聊消息：先拿聊天列表，再逐个采消息内容
         try:
             r3 = requests.get(f"{bridge}/api/chats?type=private&limit=20", headers=headers, timeout=30)
             if r3.status_code == 200:
-                chats = r3.json().get("chats", r3.json().get("messages", r3.json()))
+                chats_data = r3.json()
+                # 兼容不同 API 响应格式
+                chats = chats_data.get("chats", chats_data.get("messages", chats_data))
                 if isinstance(chats, list):
                     for chat in chats[:10]:  # 最多前10个聊天
                         chat_id = chat.get("id", "")
@@ -209,6 +213,7 @@ def collect_whatsapp():
                                     url += f"&after={requests.utils.quote(after, safe='')}"
                                 r4 = requests.get(url, headers=headers, timeout=30)
                                 if r4.status_code != 200:
+                                    # 私聊消息接口可能返回 404（bridge 不支持），跳过
                                     break
                                 data = r4.json()
                                 if isinstance(data, list):
@@ -221,21 +226,28 @@ def collect_whatsapp():
                                 else:
                                     break
                             if chat_msgs:
-                                new_pmsgs = [m for m in chat_msgs if m.get("id", "") not in existing_ids]
+                                # 验证返回的数据确实是消息（有 body 或 fromMe 字段），不是聊天摘要
+                                valid_msgs = [m for m in chat_msgs if m.get("body") is not None or "fromMe" in m or "type" in m]
+                                if len(valid_msgs) < len(chat_msgs) * 0.5:
+                                    logger.warning(f"WA private {chat_id}: msgs look like chat list (no body), skipping")
+                                    continue
+                                new_pmsgs = [m for m in valid_msgs if m.get("id", "") not in existing_ids]
                                 if new_pmsgs:
                                     cname = chat.get("name", chat_id)[:20]
                                     safe_cname = cname.replace("/", "_").replace("&", "_").replace(" ", "_")[:20]
+                                    if not safe_cname:
+                                        safe_cname = chat_id.split("@")[0][:20]
                                     out = wd / f"wa_private_{safe_cname}_{ts}.json"
                                     out.write_text(json.dumps(new_pmsgs, ensure_ascii=False, indent=2))
-                                    logger.info(f"WA private {cname}: {len(new_pmsgs)} new")
+                                    logger.info(f"WA private {cname}: {len(new_pmsgs)} new messages")
                                     total_new += len(new_pmsgs)
                         except Exception as e:
-                            logger.debug(f"WA private chat {chat_id}: {e}")
+                            logger.warning(f"WA private chat {chat_id}: {e}")
         except Exception as e:
-            logger.debug(f"WA private list: {e}")
+            logger.warning(f"WA private list: {e}")
         logger.info(f"WA total new: {total_new}")
     except Exception as e:
-        logger.debug(f"WhatsApp collect: {e}")
+        logger.warning(f"WhatsApp collect failed: {e}")
 
 # ── 2. 飞书全量采集（群消息+私聊） ──
 def collect_feishu_all():
@@ -302,23 +314,47 @@ def deep_digest():
     }
     
     digested = 0
-    for dir_name, label in raw_types.items():
-        d = RAW_DIR / dir_name
-        if not d.exists():
-            continue
-        for f in sorted(d.iterdir(), reverse=True):
-            if not f.is_file() or f.suffix in (".digested",):
+
+    # 检查 digest lock，避免与 daemon_digest 的 deep_digest_all 重叠
+    lock_file = RAW_DIR / "digest" / ".digest.lock"
+    if lock_file.exists():
+        try:
+            age = time.time() - lock_file.stat().st_mtime
+            if age < 900:
+                logger.debug("Digest lock active, skipping deep_digest")
+                return False
+        except OSError:
+            pass
+    # 创建自己的锁
+    lock_file.write_text(str(os.getpid()))
+
+    try:
+        for dir_name, label in raw_types.items():
+            d = RAW_DIR / dir_name
+            if not d.exists():
                 continue
-            mtime = datetime.fromtimestamp(f.stat().st_mtime)
-            if mtime < cutoff:
-                continue
-            
-            try:
-                content = f.read_text(encoding="utf-8", errors="replace")[:5000]
-            except Exception:
-                continue
-            
-            prompt = f"""你是一个C&I Nigeria业务分析师。请仔细分析以下{label}数据，提取所有有价值的信息。
+
+            # 使用 done_file 追踪已分析文件，防止每30分钟重复分析
+            done_file = RAW_DIR / "digest" / f"{dir_name}_digest_done.txt"
+            done_set = set()
+            if done_file.exists():
+                done_set = set(done_file.read_text().splitlines())
+
+            for f in sorted(d.iterdir(), reverse=True):
+                if not f.is_file():
+                    continue
+                if str(f) in done_set:
+                    continue
+                mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                if mtime < cutoff:
+                    continue
+
+                try:
+                    content = f.read_text(encoding="utf-8", errors="replace")[:5000]
+                except Exception:
+                    continue
+
+                prompt = f"""你是一个C&I Nigeria业务分析师。请仔细分析以下{label}数据，提取所有有价值的信息。
 
 数据来源：{f.parent.name}/{f.name}
 数据大小：{len(content)}字符
@@ -344,18 +380,30 @@ def deep_digest():
 （200字以内）
 
 {content[:4000]}"""
-            
-            result = call_llm(prompt)
-            if result:
-                digest_dir = RAW_DIR / "digest"
-                digest_dir.mkdir(parents=True, exist_ok=True)
-                out = digest_dir / f"{dir_name}_{f.stem}_analysis.md"
-                out.write_text(f"# {label}分析\n\n来源: {f}\n时间: {datetime.now().isoformat()}\n\n{result}")
-                logger.info(f"Deep digest: {out.name}")
-                digested += 1
-    
-    if digested:
-        logger.info(f"Deep digest done: {digested} files")
+
+                result = call_llm(prompt)
+                if result:
+                    digest_dir = RAW_DIR / "digest"
+                    digest_dir.mkdir(parents=True, exist_ok=True)
+                    out = digest_dir / f"{dir_name}_{f.stem}_analysis.md"
+                    out.write_text(f"# {label}分析\n\n来源: {f}\n时间: {datetime.now().isoformat()}\n\n{result}")
+                    logger.info(f"Deep digest: {out.name}")
+                    digested += 1
+                    # 标记已处理（与 daemon_digest 共享 done_file）
+                    fpath = str(f)
+                    if fpath not in done_set:
+                        with open(done_file, "a") as df:
+                            df.write(f"{fpath}\n")
+                        done_set.add(fpath)
+
+        if digested:
+            logger.info(f"Deep digest done: {digested} files")
+    except Exception as e:
+        logger.error(f"Deep digest error: {e}")
+    finally:
+        # 清理锁
+        if lock_file.exists() and lock_file.read_text().strip() == str(os.getpid()):
+            lock_file.unlink()
     return digested > 0
 
 # ── 6. idle_work（空闲深度学习） ──
@@ -448,14 +496,19 @@ def _idle_knowledge_link():
 
 def _idle_deep_read():
     """深度阅读一个raw文件（不限时间，优先未分析过的）"""
-    # 先找 digest 目录中已有的分析记录
+    # 用 deep_read_done.txt 追踪已深度阅读过的文件（而非仅靠 digest 文件名前缀匹配）
     digest_dir = RAW_DIR / "digest"
+    deep_read_done = digest_dir / "deep_read_done.txt"
+    done_files = set()
+    if deep_read_done.exists():
+        done_files = set(deep_read_done.read_text().splitlines())
+
     analyzed = set()
     if digest_dir.exists():
         for f in digest_dir.glob("*_analysis.md"):
             analyzed.add(f.stem)
 
-    # 找所有原始文件（不限天数），跳过已被分析过的
+    # 找所有原始文件（不限天数），跳过已被深度阅读过的
     files = []
     for subdir in ["feishu", "whatsapp", "email", "meetings"]:
         d = RAW_DIR / subdir
@@ -466,11 +519,11 @@ def _idle_deep_read():
             for date_dir in sorted(d.iterdir(), reverse=True):
                 if date_dir.is_dir() and date_dir.name.isdigit():
                     for f in date_dir.glob("*.json"):
-                        if f.stem not in analyzed:
+                        if str(f) not in done_files and f.stem not in analyzed:
                             files.append(f)
         # 旧结构
         for f in sorted(d.iterdir(), reverse=True):
-            if f.is_file() and f.stem not in analyzed:
+            if f.is_file() and f.stem not in analyzed and str(f) not in done_files:
                 files.append(f)
 
     if not files:
@@ -503,7 +556,10 @@ def _idle_deep_read():
         out = RAW_DIR / "digest" / f"deep_read_{datetime.now().strftime('%Y%m%d_%H%M')}.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(f"# deep_read\n\n{f}\n\n{result}")
-        logger.info(f"deep_read done: {out.name}")
+        logger.info(f"deep_read done: {out.name} | read {f.name}")
+        # 标记已深度阅读的文件
+        with open(digest_dir / "deep_read_done.txt", "a") as drf:
+            drf.write(f"{f}\n")
         return True
     return False
 
