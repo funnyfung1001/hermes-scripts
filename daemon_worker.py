@@ -8,7 +8,7 @@
 消化：每条数据都用32B仔细盘
 空闲：knowledge_link / deep_read / cross_ref 循环
 """
-import sys, json, time, os, threading, requests, random, subprocess
+import sys, json, time, os, threading, requests, random, subprocess, signal, functools
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -21,9 +21,68 @@ from config_shared import (
 
 logger = setup_logger("daemon_worker", "daemon_worker.log")
 
-# ── 本地32B ──
-def call_llm(prompt, timeout=600):
+# ── 本地32B（自动分段，2000字/段，有排队锁） ──
+_llm_lock = threading.Lock()
+_llm_queue_count = 0
+
+def call_llm(prompt, timeout=300):
+    """调用本地32B模型，大内容自动分段（2000字/块），排队等待"""
+    import requests, random
+    
+    # 排队等待（最多等 3 轮）
+    global _llm_queue_count
+    for _ in range(30):
+        with _llm_lock:
+            if _llm_queue_count < 2:  # 最多 2 个并发
+                _llm_queue_count += 1
+                break
+        time.sleep(2)
+    
     try:
+        # 分段逻辑：2000字/块，max_tokens=800
+        if len(prompt) > 2500:
+            paragraphs = prompt.split("\n\n")
+            chunks = []
+            current = ""
+            for para in paragraphs:
+                if len(current) + len(para) < 2000:
+                    current += para + "\n\n"
+                else:
+                    if current:
+                        chunks.append(current.strip())
+                    current = para + "\n\n"
+            if current:
+                chunks.append(current.strip())
+            if len(chunks) <= 1:
+                chunks = [prompt[:2000]]
+
+            results = []
+            for i, chunk in enumerate(chunks):
+                ctx = "分析第一部分。" if i == 0 else ("汇总前面分析，输出综合结论。" if i == len(chunks)-1 else "继续分析中间部分。")
+                try:
+                    resp = requests.post(
+                        LOCAL_LLM_ENDPOINT,
+                        json={
+                            "messages": [
+                                {"role": "system", "content": f"你是C&I Nigeria业务分析师。{ctx}"},
+                                {"role": "user", "content": f"[{i+1}/{len(chunks)}]\n{chunk}"}
+                            ],
+                            "max_tokens": 800,
+                            "temperature": 0.1
+                        },
+                        timeout=timeout
+                    )
+                    if resp.status_code == 200:
+                        part = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if part:
+                            results.append(part)
+                except Exception:
+                    pass
+            if results:
+                return "\n\n---\n".join(results)
+            return ""
+
+        # 短内容直接处理
         resp = requests.post(
             LOCAL_LLM_ENDPOINT,
             json={"messages": [{"role": "user", "content": prompt}],
@@ -34,17 +93,46 @@ def call_llm(prompt, timeout=600):
     except Exception as e:
         logger.error(f"LLM failed: {e}")
         return ""
+    finally:
+        with _llm_lock:
+            _llm_queue_count -= 1
 
 # ── 1. WhatsApp 全量采集 ──
 def collect_whatsapp():
+    """采集 WhatsApp 消息"""
+    import os, json
+    # 从 .env 加载 Bridge 配置
+    env_path = Path.home() / ".hermes" / ".env"
+    if env_path.exists():
+        for line in open(env_path):
+            line = line.strip()
+            if "WHATSAPP_BRIDGE" in line:
+                raw = line.split("=", 1)[1].strip()
+                os.environ["WHATSAPP_BRIDGE"] = raw.strip("\"'").strip("'")
+                break
     bridge = os.environ.get("WHATSAPP_BRIDGE", "")
     if not bridge:
         logger.debug("WhatsApp bridge not configured")
         return
-    
+
+    # 读取 api_key
+    env_path = Path.home() / ".hermes" / ".env"
+    api_key = ""
+    if env_path.exists():
+        for line in open(env_path):
+            line = line.strip()
+            if "WHATSAPP_API_KEY" in line:
+                raw = line.split("=", 1)[1].strip()
+                api_key = raw.strip("'").strip('"')
+                break
+
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
     try:
         # 获取群列表
-        r = requests.get(f"{bridge}/api/groups", timeout=30)
+        r = requests.get(f"{bridge}/api/groups", headers=headers, timeout=30)
         if r.status_code != 200:
             return
         groups = r.json().get("groups", [])
@@ -52,43 +140,126 @@ def collect_whatsapp():
         wd = RAW_DIR / "whatsapp"
         wd.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M")
-        
-        # 全量采集每个群的消息
-        for g in groups[:10]:  # 最多10个群
+
+        # 加载已存消息ID（去重用）
+        existing_ids = set()
+        for f in wd.glob("*.json"):
+            try:
+                msgs = json.loads(f.read_text())
+                if isinstance(msgs, list):
+                    for m in msgs:
+                        mid = m.get("id", m.get("message_id", ""))
+                        if mid:
+                            existing_ids.add(mid)
+            except:
+                pass
+
+        total_new = 0
+        # 全量采集每个群的消息（支持翻页，最多3页=150条）
+        for g in groups[:10]:
             gid = g.get("id", "")
             gname = g.get("name", "unknown")
             try:
-                r2 = requests.get(f"{bridge}/api/groups/{gid}/messages?limit=50", timeout=30)
-                if r2.status_code == 200:
-                    msgs = r2.json().get("messages", [])
-                    if msgs:
-                        out = wd / f"wa_group_{gname}_{ts}.json"
-                        out.write_text(json.dumps(msgs, ensure_ascii=False, indent=2))
-                        logger.info(f"WA group {gname}: {len(msgs)} msgs")
+                all_msgs = []
+                after = ""
+                for page in range(3):
+                    url = f"{bridge}/api/groups/{requests.utils.quote(gid, safe='')}/messages?limit=50"
+                    if after:
+                        url += f"&after={requests.utils.quote(after, safe='')}"
+                    r2 = requests.get(url, headers=headers, timeout=30)
+                    if r2.status_code != 200:
+                        break
+                    data = r2.json()
+                    if isinstance(data, list):
+                        msgs = data
+                    else:
+                        msgs = data.get("messages", data)
+                    if isinstance(msgs, list) and msgs:
+                        all_msgs.extend(msgs)
+                        after = msgs[-1].get("id", "")
+                    else:
+                        break
+                if all_msgs:
+                    new_msgs = [m for m in all_msgs if m.get("id", "") not in existing_ids]
+                    if new_msgs:
+                        safe_name = gname.replace("/", "_").replace("&", "_").replace(" ", "_")[:30]
+                        if not safe_name:
+                            safe_name = gid.split("@")[0][:30]
+                        out = wd / f"wa_group_{safe_name}_{ts}.json"
+                        out.write_text(json.dumps(new_msgs, ensure_ascii=False, indent=2))
+                        logger.info(f"WA {gname or gid}: {len(new_msgs)} new (of {len(all_msgs)})")
+                        total_new += len(new_msgs)
             except Exception as e:
-                logger.debug(f"WA group {gname}: {e}")
-        
-        # 私聊消息
+                logger.warning(f"WA group {gname or gid}: {e}")
+
+        # 私聊消息：先拿聊天列表，再逐个采消息内容
         try:
-            r3 = requests.get(f"{bridge}/api/chats?type=private&limit=50", timeout=30)
+            r3 = requests.get(f"{bridge}/api/chats?type=private&limit=20", headers=headers, timeout=30)
             if r3.status_code == 200:
-                pmsgs = r3.json().get("messages", [])
-                if pmsgs:
-                    out = wd / f"wa_private_{ts}.json"
-                    out.write_text(json.dumps(pmsgs, ensure_ascii=False, indent=2))
-                    logger.info(f"WA private: {len(pmsgs)} msgs")
+                chats_data = r3.json()
+                # 兼容不同 API 响应格式
+                chats = chats_data.get("chats", chats_data.get("messages", chats_data))
+                if isinstance(chats, list):
+                    for chat in chats[:10]:  # 最多前10个聊天
+                        chat_id = chat.get("id", "")
+                        if not chat_id:
+                            continue
+                        try:
+                            after = ""
+                            chat_msgs = []
+                            for page in range(3):
+                                url = f"{bridge}/api/chats/{requests.utils.quote(chat_id, safe='')}/messages?limit=50"
+                                if after:
+                                    url += f"&after={requests.utils.quote(after, safe='')}"
+                                r4 = requests.get(url, headers=headers, timeout=30)
+                                if r4.status_code != 200:
+                                    # 私聊消息接口可能返回 404（bridge 不支持），跳过
+                                    break
+                                data = r4.json()
+                                if isinstance(data, list):
+                                    msgs = data
+                                else:
+                                    msgs = data.get("messages", data)
+                                if isinstance(msgs, list) and msgs:
+                                    chat_msgs.extend(msgs)
+                                    after = msgs[-1].get("id", "")
+                                else:
+                                    break
+                            if chat_msgs:
+                                # 验证返回的数据确实是消息（有 body 或 fromMe 字段），不是聊天摘要
+                                valid_msgs = [m for m in chat_msgs if m.get("body") is not None or "fromMe" in m or "type" in m]
+                                if len(valid_msgs) < len(chat_msgs) * 0.5:
+                                    logger.warning(f"WA private {chat_id}: msgs look like chat list (no body), skipping")
+                                    continue
+                                new_pmsgs = [m for m in valid_msgs if m.get("id", "") not in existing_ids]
+                                if new_pmsgs:
+                                    cname = chat.get("name", chat_id)[:20]
+                                    safe_cname = cname.replace("/", "_").replace("&", "_").replace(" ", "_")[:20]
+                                    if not safe_cname:
+                                        safe_cname = chat_id.split("@")[0][:20]
+                                    out = wd / f"wa_private_{safe_cname}_{ts}.json"
+                                    out.write_text(json.dumps(new_pmsgs, ensure_ascii=False, indent=2))
+                                    logger.info(f"WA private {cname}: {len(new_pmsgs)} new messages")
+                                    total_new += len(new_pmsgs)
+                        except Exception as e:
+                            logger.warning(f"WA private chat {chat_id}: {e}")
         except Exception as e:
-            logger.debug(f"WA private: {e}")
+            logger.warning(f"WA private list: {e}")
+        logger.info(f"WA total new: {total_new}")
     except Exception as e:
-        logger.debug(f"WhatsApp collect: {e}")
+        logger.warning(f"WhatsApp collect failed: {e}")
 
 # ── 2. 飞书全量采集（群消息+私聊） ──
 def collect_feishu_all():
     try:
-        import feishu_raw_collector as frc
-        frc.collect_all_groups()
-        frc.collect_group_messages()
-        logger.info("Feishu: groups + messages collected")
+        # 确保 HOME 环境变量存在（daemon/cron 环境可能缺失）
+        if "HOME" not in os.environ:
+            os.environ["HOME"] = str(Path.home())
+        # 显式设置 LARK_CLI_PROFILE 确保 lark-cli 使用 hermes 配置文件
+        os.environ["LARK_CLI_PROFILE"] = "hermes"
+        import feishu_all_collector as fac
+        fac.main()
+        logger.info("Feishu: all collected")
     except Exception as e:
         logger.debug(f"Feishu collect: {e}")
 
@@ -96,19 +267,45 @@ def collect_feishu_groups():
     """原后台线程辅助，保留兼容"""
     collect_feishu_all()
 
-# ── 3. 邮件采集 ──
-def collect_email():
-    try:
-        import mail_reader
-        n = mail_reader.collect_today_email()
-        if n > 0:
-            logger.info(f"Email: {n} files")
-    except Exception as e:
-        logger.debug(f"Email: {e}")
-
-# ── 4. 互联网情报 ──
+# ── 3. 互联网情报 ──
 def collect_internet_intel():
-    """调用 internet_intel.py 采集"""
+    """调用 internet_intel.py 采集（检查进程锁+时间检查，防止重叠）
+
+    仅在以下条件都满足时运行：
+    1. 没有其他实例正在运行（PID 锁）
+    2. 上次运行间隔超过 3 小时（由 crontab 每4h调度，这里仅作兜底）
+    """
+    lock_file = Path.home() / ".hermes" / ".internet_intel.lock"
+
+    # 检查1：进程锁
+    if lock_file.exists():
+        try:
+            pid_str = lock_file.read_text().strip()
+            if pid_str:
+                pid = int(pid_str)
+                import os as _os
+                try:
+                    _os.kill(pid, 0)
+                    logger.debug("internet_intel already running, skipping")
+                    return
+                except (ProcessLookupError, OSError):
+                    pass  # 进程已结束，锁文件残留
+        except (ValueError, OSError):
+            pass
+
+    # 检查2：时间检查 — 上次输出是否在 3 小时内？是则跳过
+    intel_dir = RAW_DIR / "intel"
+    if intel_dir.exists():
+        recent = False
+        cutoff = time.time() - 10800  # 3 小时
+        for f in sorted(intel_dir.glob("intel_summary_*.md"), reverse=True)[:3]:
+            if f.stat().st_mtime > cutoff:
+                recent = True
+                break
+        if recent:
+            logger.debug("internet_intel output is recent (<3h), skipping")
+            return
+
     try:
         import internet_intel
         internet_intel.main()
@@ -127,28 +324,75 @@ def deep_digest():
     }
     
     digested = 0
-    for dir_name, label in raw_types.items():
-        d = RAW_DIR / dir_name
-        if not d.exists():
-            continue
-        for f in sorted(d.iterdir(), reverse=True):
-            if not f.is_file() or f.suffix in (".digested",):
+
+    # 检查 digest lock，避免与 daemon_digest 的 deep_digest_all 重叠
+    lock_file = RAW_DIR / "digest" / ".digest.lock"
+    if lock_file.exists():
+        try:
+            age = time.time() - lock_file.stat().st_mtime
+            if age < 900:
+                # 额外检查 PID 是否存活
+                pid_str = lock_file.read_text().strip()
+                if pid_str:
+                    try:
+                        pid = int(pid_str)
+                        os.kill(pid, 0)  # 进程存在，锁有效
+                        logger.debug("Digest lock active, skipping deep_digest")
+                        return False
+                    except (ProcessLookupError, OSError):
+                        # PID 已死，清除旧锁
+                        logger.warning(f"Digest lock PID {pid_str} dead, cleaning up")
+                        lock_file.unlink()
+                else:
+                    lock_file.unlink()
+        except OSError:
+            pass
+    # 创建自己的锁
+    lock_file.write_text(str(os.getpid()))
+
+    try:
+        for dir_name, label in raw_types.items():
+            d = RAW_DIR / dir_name
+            if not d.exists():
                 continue
-            mtime = datetime.fromtimestamp(f.stat().st_mtime)
-            if mtime < cutoff:
-                continue
-            
-            try:
-                content = f.read_text(encoding="utf-8", errors="replace")[:5000]
-            except Exception:
-                continue
-            
-            prompt = f"""你是一个C&I Nigeria业务分析师。请仔细分析以下{label}数据，提取所有有价值的信息。
+
+            # 使用 done_file 追踪已分析文件，防止每30分钟重复分析
+            done_file = RAW_DIR / "digest" / f"{dir_name}_digest_done.txt"
+            done_set = set()
+            if done_file.exists():
+                done_set = set(done_file.read_text().splitlines())
+
+            # 扫描文件：v3飞书子目录 feishu/YYYYMMDD/*.json，其他源扁平目录
+            if dir_name == "feishu":
+                scan_files = []
+                for sd in sorted(d.iterdir(), reverse=True):
+                    if sd.is_dir() and sd.name.isdigit():
+                        for f in sd.glob("*.json"):
+                            scan_files.append(f)
+            else:
+                scan_files = sorted(d.iterdir(), reverse=True)
+
+            for f in scan_files:
+                if not f.is_file():
+                    continue
+                if str(f) in done_set:
+                    continue
+                mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                if mtime < cutoff:
+                    continue
+
+                try:
+                    content = f.read_text(encoding="utf-8", errors="replace")[:5000]
+                except Exception:
+                    continue
+
+                prompt = f"""你是一个C&I Nigeria业务分析师。请仔细分析以下{label}数据，提取所有有价值的信息。
 
 数据来源：{f.parent.name}/{f.name}
 数据大小：{len(content)}字符
 
-请输出：
+请按以下格式输出分析报告：
+
 ## 📊 信息提取
 - 关键人物
 - 关键公司/项目
@@ -168,18 +412,30 @@ def deep_digest():
 （200字以内）
 
 {content[:4000]}"""
-            
-            result = call_llm(prompt)
-            if result:
-                digest_dir = RAW_DIR / "digest"
-                digest_dir.mkdir(parents=True, exist_ok=True)
-                out = digest_dir / f"{dir_name}_{f.stem}_analysis.md"
-                out.write_text(f"# {label}分析\n\n来源: {f}\n时间: {datetime.now().isoformat()}\n\n{result}")
-                logger.info(f"Deep digest: {out.name}")
-                digested += 1
-    
-    if digested:
-        logger.info(f"Deep digest done: {digested} files")
+
+                result = call_llm(prompt)
+                if result:
+                    digest_dir = RAW_DIR / "digest"
+                    digest_dir.mkdir(parents=True, exist_ok=True)
+                    out = digest_dir / f"{dir_name}_{f.stem}_analysis.md"
+                    out.write_text(f"# {label}分析\n\n来源: {f}\n时间: {datetime.now().isoformat()}\n\n{result}")
+                    logger.info(f"Deep digest: {out.name}")
+                    digested += 1
+                    # 标记已处理（与 daemon_digest 共享 done_file）
+                    fpath = str(f)
+                    if fpath not in done_set:
+                        with open(done_file, "a") as df:
+                            df.write(f"{fpath}\n")
+                        done_set.add(fpath)
+
+        if digested:
+            logger.info(f"Deep digest done: {digested} files")
+    except Exception as e:
+        logger.error(f"Deep digest error: {e}")
+    finally:
+        # 清理锁
+        if lock_file.exists() and lock_file.read_text().strip() == str(os.getpid()):
+            lock_file.unlink()
     return digested > 0
 
 # ── 6. idle_work（空闲深度学习） ──
@@ -208,17 +464,27 @@ def idle_work():
     return False
 
 def _get_raw_files(days=7):
+    """获取最近 N 天的原始数据文件（支持 v3 飞书目录结构）"""
     cutoff = datetime.now() - timedelta(days=days)
     files = []
     for subdir in ["feishu", "whatsapp", "email", "meetings"]:
         d = RAW_DIR / subdir
         if d.exists():
+            # v3 飞书新结构: feishu/YYYYMMDD/*.json
+            if subdir == "feishu":
+                for date_dir in sorted(d.iterdir(), reverse=True):
+                    if date_dir.is_dir() and date_dir.name.isdigit():
+                        for f in date_dir.glob("*.json"):
+                            mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                            if mtime > cutoff:
+                                files.append(f)
+            # 旧结构
             for f in sorted(d.iterdir(), reverse=True):
                 if f.is_file():
                     mtime = datetime.fromtimestamp(f.stat().st_mtime)
                     if mtime > cutoff:
                         files.append(f)
-    return files[:15]
+    return list(set(files))[:15]  # 去重后取前15个
 
 def _idle_knowledge_link():
     """连接不同来源的知识片段"""
@@ -261,8 +527,39 @@ def _idle_knowledge_link():
     return False
 
 def _idle_deep_read():
-    """深度阅读一个raw文件"""
-    files = _get_raw_files(3)
+    """深度阅读一个raw文件（不限时间，优先未分析过的）"""
+    # 用 deep_read_done.txt 追踪已深度阅读过的文件（而非仅靠 digest 文件名前缀匹配）
+    digest_dir = RAW_DIR / "digest"
+    deep_read_done = digest_dir / "deep_read_done.txt"
+    done_files = set()
+    if deep_read_done.exists():
+        done_files = set(deep_read_done.read_text().splitlines())
+
+    analyzed = set()
+    if digest_dir.exists():
+        for f in digest_dir.glob("*_analysis.md"):
+            analyzed.add(f.stem)
+
+    # 找所有原始文件（不限天数），跳过已被深度阅读过的
+    files = []
+    for subdir in ["feishu", "whatsapp", "email", "meetings"]:
+        d = RAW_DIR / subdir
+        if not d.exists():
+            continue
+        # v3 飞书目录
+        if subdir == "feishu":
+            for date_dir in sorted(d.iterdir(), reverse=True):
+                if date_dir.is_dir() and date_dir.name.isdigit():
+                    for f in date_dir.glob("*.json"):
+                        if str(f) not in done_files and f.stem not in analyzed:
+                            files.append(f)
+        # 旧结构
+        for f in sorted(d.iterdir(), reverse=True):
+            if f.is_file() and f.stem not in analyzed and str(f) not in done_files:
+                files.append(f)
+
+    if not files:
+        files = _get_raw_files(30)  # 全部分析过了就随机读旧的
     if not files:
         return False
     f = files[0]
@@ -291,7 +588,10 @@ def _idle_deep_read():
         out = RAW_DIR / "digest" / f"deep_read_{datetime.now().strftime('%Y%m%d_%H%M')}.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(f"# deep_read\n\n{f}\n\n{result}")
-        logger.info(f"deep_read done: {out.name}")
+        logger.info(f"deep_read done: {out.name} | read {f.name}")
+        # 标记已深度阅读的文件
+        with open(digest_dir / "deep_read_done.txt", "a") as drf:
+            drf.write(f"{f}\n")
         return True
     return False
 
@@ -331,37 +631,91 @@ def _idle_cross_ref():
         return True
     return False
 
+# ── SIGALRM 硬超时保护（防止32B卡死导致整个进程永hang） ──
+TIMEOUT = 600  # 全局超时：600秒（10分钟）
+
+class TimeoutError(Exception):
+    pass
+
+def _timeout_handler(signum, frame):
+    raise TimeoutError(f"Script timeout after {TIMEOUT} seconds")
+
+def with_timeout(func):
+    """装饰器：给函数加 SIGALRM 硬超时，600秒后自动退出
+    
+    siginterrupt(True) 确保阻塞的 syscall（socket read 等）也会被中断，
+    而非等待 syscall 完成后才检查信号。
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        old_handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.siginterrupt(signal.SIGALRM, True)
+        signal.alarm(TIMEOUT)
+        try:
+            return func(*args, **kwargs)
+        except TimeoutError as e:
+            logger.error(str(e))
+            sys.exit(124)
+        except Exception:
+            raise
+        finally:
+            signal.alarm(0)
+    return wrapper
+
 # ── 主循环 ──
 def main():
-    logger.info("=== Daemon worker tick start ===")
-    worked = False
+    # ── PID 锁：防止同脚本多实例堆积 ──
+    pid_file = Path.home() / ".hermes" / ".daemon_worker.lock"
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text())
+            os.kill(old_pid, 0)
+            logger.warning(f"Another instance running (PID {old_pid}), exiting")
+            sys.exit(0)
+        except (ProcessLookupError, OSError, ValueError):
+            pass  # stale lock, overwrite below
+    pid_file.write_text(str(os.getpid()))
+
+    try:
+        logger.info("=== Daemon worker tick start ===")
+        worked = False
+
+        # 1. WhatsApp 全量采集
+        collect_whatsapp()
     
-    # 1. WhatsApp 全量采集
-    collect_whatsapp()
+        # 2. 飞书全量采集
+        t = threading.Thread(target=collect_feishu_all, daemon=True)
+        t.start()
+
+# ── 4. 互联网情报
+        collect_internet_intel()
+
+        # 等待飞书采集完成（最多30秒）
+        t.join(timeout=30)
+
+        # 5. 深度消化（32B仔细分析每条数据）
+        if deep_digest():
+            worked = True
+
+        # 6. 写入 OpenViking 向量库
+        try:
+            import openviking_ingest
+            n = openviking_ingest.ingest_new_content()
+            if n:
+                logger.info(f"OpenViking ingest: {n} documents")
+        except Exception as e:
+            logger.debug(f"OpenViking ingest: {e}")
+
+        # 7. 空闲深度学习（高概率触发，充分利用32B算力）
+        import random
+        if not worked or random.random() < 0.6:
+            idle_work()
     
-    # 2. 飞书全量采集
-    t = threading.Thread(target=collect_feishu_all, daemon=True)
-    t.start()
-    
-    # 3. 邮件采集
-    collect_email()
-    
-    # 4. 互联网情报
-    collect_internet_intel()
-    
-    # 等待飞书采集完成（最多30秒）
-    t.join(timeout=30)
-    
-    # 5. 深度消化（32B仔细分析每条数据）
-    if deep_digest():
-        worked = True
-    
-    # 6. 空闲深度学习
-    if not worked:
-        idle_work()
-    
-    logger.info("=== Daemon worker tick done ===")
-    return 0
+        logger.info("=== Daemon worker tick done ===")
+        return 0
+    finally:
+        pid_file.unlink(missing_ok=True)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(with_timeout(main)())
