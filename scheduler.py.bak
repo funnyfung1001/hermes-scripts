@@ -1,0 +1,387 @@
+#!/usr/bin/env python3
+"""scheduler.py — 主调度器（三层工作队列）
+
+调度算法：
+  1. 先执行采集（collector），检查有没有 Tier 1 工作（新数据）
+  2. 有新数据 → process_tier1()：deep_digest()
+  3. 没新数据 → 检查 Tier 2（交叉分析）：上次 Tier2 超过 1h
+  4. 没 Tier2 → 检查 Tier 3（深层学习）：连续空闲超过 30min
+  5. 真的没活干 → 短暂休眠后重试
+
+三层工作队列：
+  Tier 1 — 紧急（新数据到达时触发）
+    产出: digest 分析文件
+    来源: 飞书新消息、WhatsApp 新消息
+    超时: 300s/条
+    优先级: 最高
+
+  Tier 2 — 维护（32B 即将空闲时触发）
+    产出: cross_ref / knowledge_link
+    来源: 已有 digest 数据的交叉分析
+    超时: 180s/次
+    优先级: 中
+
+  Tier 3 — 背景（32B 长时间空闲时注入）
+    产出: deep_read / 重新分析 / 深层关联
+    来源: 所有历史数据，选未分析过的
+    超时: 300s/次
+    优先级: 低
+
+约束：
+  - 单实例运行（锁文件）
+  - SIGALRM 硬超时保护（600s）
+  - 32B 不能闲置，也不能过载
+"""
+import json, os, signal, sys, time
+from pathlib import Path
+from datetime import datetime, timedelta
+
+sys.path.insert(0, str(Path(__file__).parent.resolve()))
+from config_shared import setup_logger, HERMES, RAW_DIR
+
+# ── 调度状态文件 ──
+STATE_FILE = HERMES / ".scheduler_state.json"
+LOCK_FILE = HERMES / ".scheduler.lock"
+
+# ── 超时配置 ──
+COLLECT_TIMEOUT = 120        # 采集总超时（秒）
+TIER1_TIMEOUT = 600          # Tier 1 深层消化总超时（秒）
+TIER2_TIMEOUT = 300          # Tier 2 交叉分析超时（秒）
+TIER3_TIMEOUT = 600          # Tier 3 背景学习超时（秒）
+GLOBAL_TIMEOUT = 900         # 整个 tick 硬超时（秒）
+
+# ── 调度间隔配置 ──
+TIER2_INTERVAL = 3600        # Tier 2 最小间隔（1 小时）
+TIER3_IDLE_THRESHOLD = 1800  # 连续空闲多久触发 Tier 3（30 分钟）
+SLEEP_INTERVAL = 60          # 无工作时休眠间隔（秒）
+TIER3_DAILY_LIMIT = 12       # Tier 3 每日最多执行次数
+
+logger = setup_logger("scheduler", "scheduler.log")
+
+
+def load_state() -> dict:
+    """加载调度状态
+
+    Returns:
+        dict: {
+            "last_tier2": str (ISO datetime) or None,
+            "last_tier3": str (ISO datetime) or None,
+            "last_tier1": str (ISO datetime) or None,
+            "last_any_output": str (ISO datetime) or None,
+            "tier3_today_count": int,
+            "tier3_today_date": str (YYYY-MM-DD)
+        }
+    """
+    default = {
+        "last_tier2": None,
+        "last_tier3": None,
+        "last_tier1": None,
+        "last_any_output": None,
+        "tier3_today_count": 0,
+        "tier3_today_date": datetime.now().strftime("%Y-%m-%d"),
+    }
+    if not STATE_FILE.exists():
+        return default
+    try:
+        data = json.loads(STATE_FILE.read_text())
+        # 合并默认值
+        for k, v in default.items():
+            data.setdefault(k, v)
+        return data
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
+def save_state(state: dict):
+    """保存调度状态到文件"""
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+
+def sec_since(iso_str) -> float:
+    """计算从 ISO 字符串到现在经过的秒数
+
+    Args:
+        iso_str: ISO 格式时间字符串或 None
+
+    Returns:
+        秒数，如果输入为 None 则返回很大的数（表示从未执行过）
+    """
+    if not iso_str:
+        return float("inf")
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return (datetime.now() - dt).total_seconds()
+    except (ValueError, TypeError):
+        return float("inf")
+
+
+def check_llm_busy() -> bool:
+    """检查 32B 是否正在运行推理
+
+    Returns:
+        bool: True 表示 LLM 正忙
+
+    通过 llama-server 的内部 queue-status 端点检查。
+    如果端点不可用，保守假设空闲。
+    """
+    import requests
+
+    try:
+        from config_shared import LOCAL_LLM_ENDPOINT
+
+        status_url = LOCAL_LLM_ENDPOINT.replace(
+            "/v1/chat/completions", "/v1/internal/queue-status"
+        )
+        resp = requests.get(status_url, timeout=3)
+        return resp.json().get("running", False)
+    except Exception:
+        return False
+
+
+def has_recent_digest_output(minutes: int = 120) -> bool:
+    """检查 digest 目录是否有最近的分析产出
+
+    Args:
+        minutes: 回溯分钟数，默认 120（2 小时）
+
+    Returns:
+        bool: 是否有最近的产出
+    """
+    cutoff = time.time() - minutes * 60
+    digest_dir = RAW_DIR / "digest"
+    if not digest_dir.exists():
+        return False
+    for f in digest_dir.glob("*_analysis.md"):
+        if f.stat().st_mtime > cutoff:
+            return True
+    for f in digest_dir.glob("knowledge_link_*.md"):
+        if f.stat().st_mtime > cutoff:
+            return True
+    for f in digest_dir.glob("deep_read_*.md"):
+        if f.stat().st_mtime > cutoff:
+            return True
+    for f in digest_dir.glob("cross_ref_*.md"):
+        if f.stat().st_mtime > cutoff:
+            return True
+    return False
+
+
+def main():
+    """调度器主循环
+
+    流程：
+    1. PID 锁检查（防止多实例）
+    2. 采集阶段（collect_all）
+    3. 有 Tier 1 新数据 → deep_digest
+    4. 无新数据 → 检查 Tier 2（距离上次 < 1h?）
+    5. 无 Tier 2 → 检查 TIer 3（距离上次 < 30m? / 今日超额?）
+    6. 全部无工作 → sleep 60s
+    """
+    # ── PID 锁 ──
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if LOCK_FILE.exists():
+        try:
+            old_pid = int(LOCK_FILE.read_text())
+            os.kill(old_pid, 0)
+            logger.warning(f"Another scheduler running (PID {old_pid}), exiting")
+            sys.exit(0)
+        except (ProcessLookupError, OSError, ValueError):
+            pass  # stale lock, overwrite
+    LOCK_FILE.write_text(str(os.getpid()))
+
+    # ── SIGALRM 全局超时保护 ──
+    def timeout_handler(signum, frame):
+        logger.error(f"Global timeout after {GLOBAL_TIMEOUT}s, exiting")
+        sys.exit(124)
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.siginterrupt(signal.SIGALRM, True)
+    signal.alarm(GLOBAL_TIMEOUT)
+
+    start = time.time()
+    state = load_state()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # 每日 Tier 3 计数器重置
+    if state.get("tier3_today_date") != today:
+        state["tier3_today_count"] = 0
+        state["tier3_today_date"] = today
+
+    try:
+        logger.info("=== Scheduler tick start ===")
+
+        # ══════════════════════════════════════
+        # 0. 检查 32B 是否正忙 — 如果忙则跳过分析阶段
+        # ══════════════════════════════════════
+        llm_busy = check_llm_busy()
+        if llm_busy:
+            logger.info("LLM is busy, skipping analysis phase this tick")
+            # 仍然做采集（轻量）
+            from collector import collect_all
+
+            signal.alarm(COLLECT_TIMEOUT)
+            try:
+                collect_result = collect_all()
+                logger.info(f"Collect only (LLM busy): {collect_result}")
+            except Exception as e:
+                logger.debug(f"Collect failed: {e}")
+            finally:
+                signal.alarm(GLOBAL_TIMEOUT)
+            elapsed = time.time() - start
+            logger.info(f"=== Scheduler tick done (LLM busy, {elapsed:.1f}s) ===")
+            return 0
+
+        # ══════════════════════════════════════
+        # 1. 采集阶段（轻量，无 32B 调用）
+        # ══════════════════════════════════════
+        from collector import collect_all
+
+        signal.alarm(COLLECT_TIMEOUT)
+        try:
+            collect_result = collect_all()
+            has_new_data = collect_result.get("has_new_data", False)
+            logger.info(
+                f"Collect: new_data={has_new_data} "
+                f"in {collect_result.get('elapsed', 0)}s"
+            )
+        except Exception as e:
+            logger.debug(f"Collect failed: {e}")
+            has_new_data = False
+        finally:
+            signal.alarm(GLOBAL_TIMEOUT)
+
+        # ══════════════════════════════════════
+        # 2. Tier 1 检查 — 有新数据则深度消化
+        # ══════════════════════════════════════
+        if has_new_data:
+            logger.info("Tier 1: new data detected → deep_digest")
+            from analyzer import deep_digest
+
+            signal.alarm(TIER1_TIMEOUT)
+            try:
+                did_work = deep_digest(timeout=300)
+                if did_work:
+                    now_iso = datetime.now().isoformat()
+                    state["last_tier1"] = now_iso
+                    state["last_any_output"] = now_iso
+                    logger.info("Tier 1: deep_digest produced output")
+            except Exception as e:
+                logger.debug(f"Tier 1 deep_digest failed: {e}")
+            finally:
+                signal.alarm(GLOBAL_TIMEOUT)
+
+            save_state(state)
+            elapsed = time.time() - start
+            logger.info(f"=== Scheduler tick done (Tier1, {elapsed:.1f}s) ===")
+            return 0
+
+        # ══════════════════════════════════════
+        # 3. Tier 2 检查 — 无新数据，检查交叉分析
+        # ══════════════════════════════════════
+        time_since_tier2 = sec_since(state.get("last_tier2"))
+        if time_since_tier2 >= TIER2_INTERVAL:
+            logger.info(
+                f"Tier 2: last run {time_since_tier2:.0f}s ago "
+                f"(threshold {TIER2_INTERVAL}s) → cross analysis"
+            )
+            from analyzer import knowledge_link, cross_ref
+
+            # 先试 knowledge_link（高价值）
+            signal.alarm(TIER2_TIMEOUT)
+            tier2_done = False
+            try:
+                if knowledge_link(timeout=180):
+                    tier2_done = True
+            except Exception as e:
+                logger.debug(f"Tier 2 knowledge_link failed: {e}")
+            finally:
+                signal.alarm(GLOBAL_TIMEOUT)
+
+            # 如果 knowledge_link 不成功，试 cross_ref
+            if not tier2_done:
+                signal.alarm(TIER2_TIMEOUT)
+                try:
+                    if cross_ref(timeout=180):
+                        tier2_done = True
+                except Exception as e:
+                    logger.debug(f"Tier 2 cross_ref failed: {e}")
+                finally:
+                    signal.alarm(GLOBAL_TIMEOUT)
+
+            if tier2_done:
+                now_iso = datetime.now().isoformat()
+                state["last_tier2"] = now_iso
+                state["last_any_output"] = now_iso
+
+            save_state(state)
+            elapsed = time.time() - start
+            logger.info(
+                f"=== Scheduler tick done (Tier2, {elapsed:.1f}s, "
+                f"produced={tier2_done}) ==="
+            )
+            return 0
+
+        # ══════════════════════════════════════
+        # 4. Tier 3 检查 — 长时间空闲则做深刻背景学习
+        # ══════════════════════════════════════
+        time_since_tier3 = sec_since(state.get("last_tier3"))
+        time_since_any_output = sec_since(state.get("last_any_output"))
+        idle_time = min(time_since_tier3, time_since_any_output)
+
+        tier3_today_count = state.get("tier3_today_count", 0)
+        tier3_allowed = tier3_today_count < TIER3_DAILY_LIMIT
+
+        if idle_time >= TIER3_IDLE_THRESHOLD and tier3_allowed:
+            logger.info(
+                f"Tier 3: idle {idle_time:.0f}s (threshold {TIER3_IDLE_THRESHOLD}s), "
+                f"today count {tier3_today_count}/{TIER3_DAILY_LIMIT} → deep_read"
+            )
+            from analyzer import deep_read
+
+            signal.alarm(TIER3_TIMEOUT)
+            try:
+                did_work = deep_read(timeout=300)
+                if did_work:
+                    now_iso = datetime.now().isoformat()
+                    state["last_tier3"] = now_iso
+                    state["last_any_output"] = now_iso
+                    state["tier3_today_count"] = tier3_today_count + 1
+                    logger.info(
+                        f"Tier 3: deep_read produced output "
+                        f"(#{state['tier3_today_count']} today)"
+                    )
+            except Exception as e:
+                logger.debug(f"Tier 3 deep_read failed: {e}")
+            finally:
+                signal.alarm(GLOBAL_TIMEOUT)
+
+            save_state(state)
+            elapsed = time.time() - start
+            logger.info(
+                f"=== Scheduler tick done (Tier3, {elapsed:.1f}s) ==="
+            )
+            return 0
+
+        # ══════════════════════════════════════
+        # 5. 真的没活干 → 快退
+        # ══════════════════════════════════════
+        logger.info(
+            f"No work: tier2_in={time_since_tier2:.0f}s, "
+            f"idle={idle_time:.0f}s, "
+            f"tier3_today={tier3_today_count}/{TIER3_DAILY_LIMIT}"
+        )
+        elapsed = time.time() - start
+        logger.info(f"=== Scheduler tick done (no work, {elapsed:.1f}s) ===")
+        return 0
+
+    except Exception as e:
+        logger.error(f"Scheduler failed: {e}")
+        return 1
+    finally:
+        signal.alarm(0)
+        LOCK_FILE.unlink(missing_ok=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
